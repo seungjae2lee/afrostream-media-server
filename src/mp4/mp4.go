@@ -20,7 +20,6 @@ type TrackEntry struct {
   Name string
   Bandwidth  uint64
   File string
-  StszBoxOffset int64
   Config DashConfig
 }
 
@@ -51,9 +50,14 @@ type DashVideoEntry struct {
   PPSSize uint16               // AVCC MP4 Box info (eg: 4)
   PPSData []byte               // AVCC MP4 Box info (eg: 104 202 140 178)
   StssBoxOffset int64
+  StssBoxSize uint32
 }
 
 type DashConfig struct {
+  StszBoxOffset int64
+  StszBoxSize uint32
+  MdatBoxOffset int64
+  MdatBoxSize uint32              // MDAT MP4 Box Size
   Type string                  // "audio" || "video
   Rate int32                   // Typically 0x00010000 (1.0)
   Volume int16                 // Typically 0x0100 (Full Volume)
@@ -61,7 +65,6 @@ type DashConfig struct {
   Timescale uint32             // MDHD MP4 Box info (eg: for audio: 48000, for video: 60000)
   Language [3]byte             // ISO-639-2/T 3 letters code (eg: []byte{ 'e', 'n', 'g' }
   HandlerType uint32           // HDLR MP4 Box info (eg: 1986618469)
-  MdatSize uint32              // MDAT MP4 Box Size
   SampleDelta uint32           // STTS MP4 Box SampleDelta via Entries[0] (eg: 1024)
 
   Audio *DashAudioEntry `json:",omitempty"`
@@ -796,7 +799,6 @@ func readHdlrBox(f *os.File, size uint32, level int, boxPath string, mp4 map[str
   }
 
   var hdlr HdlrBox
-  log.Printf("size of hdlr is %d", size)
   hdlr.Size = size
   hdlr.Version = data[0]
   copy(hdlr.Reserved[:], data[1:4])
@@ -1160,7 +1162,6 @@ func readMp4aBox(f *os.File, size uint32, level int, boxPath string, mp4 map[str
   }
 
   var mp4a Mp4aBox
-  log.Printf("SIZE IS %d", size)
   mp4a.Size = size
   copy(mp4a.Reserved[0:6], data[0:6])
   mp4a.DataReferenceIndex = binary.BigEndian.Uint16(data[6:8])
@@ -1428,22 +1429,26 @@ func (stsc StscBox) Bytes() (data []byte) {
 }
 
 func readStszBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  var stsz StszBox
+  stsz.Offset, _ = f.Seek(0, os.SEEK_CUR)
   data := make([]byte, size)
   _, err := f.Read(data)
   if err != nil {
     panic(err)
   }
 
-  var stsz StszBox
   stsz.Size = size
-  stsz.Offset, _ = f.Seek(0, os.SEEK_CUR)
   stsz.Version = data[0]
   copy(stsz.Reserved[:], data[1:4])
   stsz.SampleSize = binary.BigEndian.Uint32(data[4:8])
   stsz.SampleCount = binary.BigEndian.Uint32(data[8:12])
   if stsz.SampleSize == 0 {
-    var i uint32
+    sampleCount := (size - 12) >> 2
+    if sampleCount < stsz.SampleCount {
+      stsz.SampleCount = sampleCount
+    }
     stsz.EntrySize = make([]uint32, stsz.SampleCount)
+    var i uint32
     for i = 0; i < stsz.SampleCount; i++ {
       stsz.EntrySize[i] = binary.BigEndian.Uint32(data[12+(i*4):16+(i*4)])
     }
@@ -1465,8 +1470,13 @@ func (stsz StszBox) Bytes() (data []byte) {
   binary.BigEndian.PutUint32(data[16:20], stsz.SampleCount)
   offset = 20
   if stsz.SampleSize == 0 {
-    for _, v := range stsz.EntrySize {
-      binary.BigEndian.PutUint32(data[offset:offset+4], v)
+    sampleCount := (stsz.Size - 12) >> 2
+    if sampleCount < stsz.SampleCount {
+      stsz.SampleCount = sampleCount
+    }
+    var i uint32
+    for i = 0; i < stsz.SampleCount; i++ {
+      binary.BigEndian.PutUint32(data[offset:offset+4], stsz.EntrySize[i])
       offset += 4
     }
   }
@@ -1561,19 +1571,23 @@ func (stts SttsBox) Bytes() (data []byte) {
 }
 
 func readStssBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  var stss StssBox
+  stss.Offset, _ = f.Seek(0, os.SEEK_CUR)
   data := make ([]byte, size)
   _, err := f.Read(data)
   if err != nil {
     panic(err)
   }
 
-  var stss StssBox
   stss.Size = size
-  stss.Offset, _ = f.Seek(0, os.SEEK_CUR)
   stss.Version = data[0]
   copy(stss.Reserved[:], data[1:4])
   stss.EntryCount = binary.BigEndian.Uint32(data[4:8])
   stss.SampleNumber = make([]uint32, stss.EntryCount)
+  entryCount := (size - 8) >> 2
+  if entryCount < stss.EntryCount {
+    stss.EntryCount = entryCount
+  }
   var i uint32
   for i = 0; i < stss.EntryCount; i++ {
     stss.SampleNumber[i] = binary.BigEndian.Uint32(data[8+(i*4):12+(i*4)])
@@ -1591,6 +1605,10 @@ func (stss StssBox) Bytes() (data []byte) {
   data[8] = stss.Version
   copy(data[9:12], stss.Reserved[:])
   binary.BigEndian.PutUint32(data[12:16], stss.EntryCount)
+  entryCount := (stss.Size - 8) >> 2
+  if entryCount < stss.EntryCount {
+    stss.EntryCount = stss.Size - 12
+  }
   var i uint32
   for i = 0; i < stss.EntryCount; i++ {
     binary.BigEndian.PutUint32(data[16+(i*4):20+(i*4)], stss.SampleNumber[i])
@@ -1897,8 +1915,6 @@ func readTfdtBox(f *os.File, size uint32, level int, boxPath string, mp4 map[str
 
 func (tfdt TfdtBox) Bytes() (data []byte) {
   boxSize := tfdt.Size + 8
-  log.Printf("TFDT SIZE IS %v", boxSize)
-  log.Printf("TFDT VERSION IS %v", tfdt.Version)
   data = make([]byte, boxSize)
 
   binary.BigEndian.PutUint32(data[0:4], boxSize)
@@ -2232,7 +2248,6 @@ func MapToBytes(mp4 map[string][]interface{}) (data []byte) {
 
   for _, v := range boxPathOrder {
     if mp4[v] == nil {
-      log.Printf("%s doesn't exist !", v)
       continue
     }
     b := boxToBytes(mp4[v][0], v)
@@ -2333,9 +2348,7 @@ func CreateDashInit(mp4 map[string][]interface{}) (mp4Init map[string][]interfac
     esdsOldSize := esds.Size
     esds.Size = 31
     stsd.Size += esds.Size - esdsOldSize
-    log.Printf("OLD MP4A SIZE is %d", mp4a.Size)
     mp4a.Size += esds.Size - esdsOldSize
-    log.Printf("NEW MP4A SIZE is %d", mp4a.Size)
     esds.Version = 0
     replaceBox(mp4Init, "moov.trak.mdia.minf.stbl.stsd.mp4a.esds", esds)
     replaceBox(mp4Init, "moov.trak.mdia.minf.stbl.stsd.mp4a", mp4a)
@@ -2579,8 +2592,6 @@ func CreateDashFragment(mp4 map[string][]interface{}, fragmentNumber uint32, fra
   tfdt.Size = 12
   replaceBox(fmp4, "moof.traf.tfdt", tfdt)
 
-  // for loop to set each trun.Samples[X] from moov.trak.mdia.minf.stbl.stsz
-  // trun.Samples[X].Duration = XXX trun.Samples[X].Size = XXX trun.Samples[X].Flags = XXX trun.Samples[X].CompositionTimeOffset = XXX
   traf.Size = tfhd.Size + 8 + tfdt.Size + 8 + trun.Size + 8
   moof.Size = mfhd.Size + 8 + traf.Size + 8
   trun.DataOffset = int32(moof.Size + 8 + 8)
@@ -2609,7 +2620,6 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
   // Create FREE Box
   var free FreeBox
   free.Data = []byte("AMS by spebsd@gmail.com")
-  //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
   free.Size = uint32(len(free.Data))
   replaceBox(mp4Init, "free", free)
 
@@ -2686,9 +2696,9 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
   hdlr.HandlerType = dConf.HandlerType
   hdlr.Reserved2 = [3]uint32{ 0, 0, 0 }
   if dConf.Type == "video" {
-    hdlr.Name = []byte("AMS Video Handler\x00")
+    hdlr.Name = []byte("USP Video Handler\x00")
   } else {
-    hdlr.Name = []byte("AMS Audio Handler\x00")
+    hdlr.Name = []byte("USP Audio Handler\x00")
   }
   hdlr.Size = 24 + uint32(len(hdlr.Name))
   replaceBox(mp4Init, "moov.trak.mdia.hdlr", hdlr)
@@ -2810,7 +2820,7 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
     var btrt BtrtBox
     btrt.DecodingBufferSize = 0
     btrt.MaxBitrate = 0
-    btrt.AvgBitrate = uint32(float64(dConf.MdatSize) / (float64(dConf.Duration) / float64(dConf.Timescale)) * 8)
+    btrt.AvgBitrate = uint32(float64(dConf.MdatBoxSize) / (float64(dConf.Duration) / float64(dConf.Timescale)) * 8)
     btrt.Size = 12
     replaceBox(mp4Init, "moov.trak.mdia.minf.stbl.stsd.avc1.btrt", btrt)
 
@@ -2883,23 +2893,20 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
   return
 }
 
-func CreateDashFragmentWithConf(dConf DashConfig, fragmentNumber uint32, fragmentDuration uint32) (fmp4 map[string][]interface{}) {
-  fmp4 = make(map[string][]interface{})
+func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumber uint32, fragmentDuration uint32) (fmp4 map[string][]interface{}) {
+  lastSegment := false
 
-  // STYP
-  var styp StypBox
-  styp.MajorBrand = [4]byte{ 'i', 's', 'o', '6' }
-  styp.MinorVersion = 0
-  styp.CompatibleBrands = make([][4]byte, 2)
-  styp.CompatibleBrands[0] = [4]byte{ 'i', 's', 'o', '6' }
-  styp.CompatibleBrands[1] = [4]byte{ 'm', 's', 'd', 'h' }
-  styp.Size = 16
-  replaceBox(fmp4, "styp", styp)
+  f, err := os.Open(filename)
+  if err != nil {
+    return
+  }
+  fmp4 = make(map[string][]interface{})
 
   // FREE
   var free FreeBox
-  free.Data = []byte("AMS by spebsd@gmail.com")
+  //free.Data = []byte("AMS by spebsd@gmail.com")
   //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
+  free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 13 ,13 ,13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13 }
   free.Size = uint32(len(free.Data))
   replaceBox(fmp4, "free", free)
 
@@ -2941,11 +2948,8 @@ func CreateDashFragmentWithConf(dConf DashConfig, fragmentNumber uint32, fragmen
     }
   }
   tfhd.TrackID = 1
-  //elst := mp4["moov.trak.edts.elst"][0].(ElstBox)
-  //tfhd.DefaultSampleDuration = uint32(elst.MediaTime)
   tfhd.DefaultSampleDuration = dConf.SampleDelta
   replaceBox(fmp4, "moof.traf.tfhd", tfhd)
-
 
   // TRUN
   var trun TrunBox
@@ -2964,57 +2968,84 @@ func CreateDashFragmentWithConf(dConf DashConfig, fragmentNumber uint32, fragmen
       return
     }
   }
-  sampleStart := (((int64(fragmentNumber) - 1) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta)
-  //sampleEnd := (((int64(fragmentNumber) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta)) - 1
+  sampleStart := uint32((((int64(fragmentNumber) - 1) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta))
+  sampleEnd := uint32((((int64(fragmentNumber) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta)) - 1)
 
-  /*var stss StssBox
+
+  // Search Positions in STSS Box
+  mp4 := make(map[string][]interface{})
+  var stss StssBox
+  var iFramesToSet []uint32
   if dConf.Type == "video" {
+    f.Seek(dConf.Video.StssBoxOffset, 0)
+    readStssBox(f, dConf.Video.StssBoxSize, 0, "moov.trak.mdia.minf.stbl.stss", mp4)
     // Must match an I-Frame
     stss = mp4["moov.trak.mdia.minf.stbl.stss"][0].(StssBox)
     var i uint32
     sampleStartSet := false
-    for i = 0; int64(stss.SampleNumber[i]) < sampleEnd; i++ {
-      if sampleStartSet == false && int64(stss.SampleNumber[i]) > sampleStart {
-        sampleStart = int64(stss.SampleNumber[i] - 1)
-        sampleStartSet = true
+    for i = 0; (i < stss.EntryCount) && ((stss.SampleNumber[i] - 1) < sampleEnd); i++ {
+      if stss.SampleNumber[i] > sampleStart {
+        if sampleStartSet == false  {
+          sampleStart = stss.SampleNumber[i] - 1
+          sampleStartSet = true
+        }
+        iFramesToSet = append(iFramesToSet, stss.SampleNumber[i] - 1 - sampleStart)
       }
     }
-    sampleEnd = int64(stss.SampleNumber[i] - 2)
+    if i < stss.EntryCount {
+      sampleEnd = stss.SampleNumber[i] - 2
+    } else {
+      lastSegment = true
+    }
   }
 
-  log.Printf("stss samplenumber is %d", sampleEnd)
-  trun.SampleCount = uint32(sampleEnd - sampleStart + 1)
-  log.Printf("trun samplecount is %d", trun.SampleCount)
-  trun.Size = 12
-  log.Printf("sampleStart is %v, sampleEnd is %v", sampleStart, sampleEnd)
-  trun.Samples = make([]TrunBoxSample, trun.SampleCount)
-  stsz := mp4["moov.trak.mdia.minf.stbl.stsz"][0].(StszBox)
-  mdat := mp4["mdat"][0].(MdatBox)
-  var i int64
-  for i = 0; i < sampleStart; i++ {
-    mdat.Offset += int64(stsz.EntrySize[i])
+  // Read STSZ Box
+  f.Seek(dConf.StszBoxOffset, 0)
+  var stszSize uint32
+  stszSize = 12 + ((sampleEnd + 1) * 4)
+  if stszSize > dConf.StszBoxSize {
+    stszSize = dConf.StszBoxSize
   }
+  readStszBox(f, stszSize , 0, "moov.trak.mdia.minf.stbl.stsz", mp4)
+  stsz := mp4["moov.trak.mdia.minf.stbl.stsz"][0].(StszBox)
+  if sampleEnd > (stsz.SampleCount - 1) {
+    sampleEnd = stsz.SampleCount - 1
+  }
+  trun.SampleCount = uint32(sampleEnd - sampleStart + 1)
+  trun.Size = 12
+  trun.Samples = make([]TrunBoxSample, trun.SampleCount)
+  var mdat MdatBox
+  mdat.Offset = dConf.MdatBoxOffset
   mdat.Size = 0
+  mdat.Filename = filename
+  var i uint32
+  for i = 0; i < sampleStart; i++ {
+    if stsz.SampleSize == 0 {
+      mdat.Offset += int64(stsz.EntrySize[i])
+    } else {
+      mdat.Offset += int64(stsz.SampleSize)
+    }
+  }
+  var size uint32
   for i = sampleStart; i <= sampleEnd; i++ {
-    trun.Samples[i - sampleStart].Size = stsz.EntrySize[i]
+    if stsz.SampleSize == 0 {
+      size = stsz.EntrySize[i]
+    } else {
+      size = stsz.SampleSize
+    }
+    trun.Samples[i - sampleStart].Size = size
     trun.Size += 4
-    if isVideo == true {
+    if dConf.Type == "video" {
       trun.Samples[i - sampleStart].Flags = 21037248
       trun.Size += 4
     }
-    mdat.Size += stsz.EntrySize[i]
+    mdat.Size += size
   }
-  if isVideo == true {
-    var i uint32
-    for i = 0; int64(stss.SampleNumber[i]) < sampleEnd; i++ {
-      log.Printf("i is %d", i)
-      log.Printf("stss.SampleNumber is %d and samplestart is %d", stss.SampleNumber[i], sampleStart)
-      if int64(stss.SampleNumber[i] - 1) >= sampleStart {
-        trun.Samples[int64(stss.SampleNumber[i]) - 1 - sampleStart].Flags = 37748800
-        log.Printf("SET @ %d", stss.SampleNumber[i] - 1)
-      }
+  if dConf.Type == "video" {
+    for _, iframe := range iFramesToSet {
+      trun.Samples[iframe].Flags = 37748800
     }
-  }*/
+  }
 
   // TFDT
   var tfdt TfdtBox
@@ -3032,7 +3063,24 @@ func CreateDashFragmentWithConf(dConf DashConfig, fragmentNumber uint32, fragmen
   replaceBox(fmp4, "moof.traf.trun", trun)
   replaceBox(fmp4, "moof.traf", traf)
   replaceBox(fmp4, "moof", moof)
-  //replaceBox(fmp4, "mdat", mdat)
+  replaceBox(fmp4, "mdat", mdat)
+
+  // STYP
+  var styp StypBox
+  styp.MajorBrand = [4]byte{ 'i', 's', 'o', '6' }
+  styp.MinorVersion = 0
+  if lastSegment == true {
+    styp.CompatibleBrands = make([][4]byte, 3)
+    styp.CompatibleBrands[2] = [4]byte{ 'l', 'm', 's', 'g' }
+    styp.Size = 20
+  } else {
+    styp.CompatibleBrands = make([][4]byte, 2)
+    styp.Size = 16
+  }
+  styp.CompatibleBrands[0] = [4]byte{ 'i', 's', 'o', '6' }
+  styp.CompatibleBrands[1] = [4]byte{ 'm', 's', 'd', 'h' }
+  replaceBox(fmp4, "styp", styp)
+
 
   return
 }

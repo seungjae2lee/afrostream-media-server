@@ -14,6 +14,7 @@ import (
         "strconv"
         "errors"
 	"fmt"
+	"flag"
 )
 
 func readFile(filename string) (data []byte) {
@@ -204,13 +205,12 @@ func httpServerLoadPage(path string) (content []byte, err error) {
 }
 
 func httpRootServer(w http.ResponseWriter, r *http.Request) {
-  log.Printf("w is %v", w)
   w.Header().Set("Access-Control-Allow-Origin", "*")
   w.Header().Set("Access-Control-Allow-Credentials", "true")
   w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
   w.Header().Set("Access-Control-Allow-Headers", "DNT,X-CustomHeader,Keep-Alive,Range,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type")
   w.Header().Set("Connection", "close")
-  log.Printf("REQUEST IS %+v", r.URL)
+  log.Printf("[ REQUEST ] %+v", r.URL)
   pathStr := string(r.URL.Path[:])
   splitDirs := strings.Split(pathStr, "/")
   videoId := splitDirs[1][0:len(splitDirs[1]) - len(path.Ext(splitDirs[1]))]
@@ -233,7 +233,6 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
           return
         }
         trackBandwidth = num
-        log.Printf("videoId is %s", videoId)
         data := readFile(videoId + ".json")
 
         var jConfig mp4.JsonConfig
@@ -245,10 +244,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
         }
 
         for _, t := range jConfig.Tracks[trackType] {
-          log.Printf("if %s == %s && %d == %d", t.Name, trackName, t.Bandwidth, trackBandwidth)
           if t.Name == trackName && t.Bandwidth == trackBandwidth {
-            log.Printf("file requested found, it's %s", t.File)
-            //sourceMp4 := mp4.ParseFile(t.Src)
             dashInit := mp4.CreateDashInitWithConf(t.Config)
             b := mp4.MapToBytes(dashInit)
             w.Header().Set("Content-Length", strconv.Itoa(len(b)))
@@ -295,26 +291,22 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
         }
 
         for _, t := range jConfig.Tracks[trackType] {
-          log.Printf("%s == %s && %d == %d", t.Name, trackName, t.Bandwidth, trackBandwidth)
           if t.Name == trackName && t.Bandwidth == trackBandwidth {
-            log.Printf("file requested found, it's %s", t.File)
-            sourceMp4 := mp4.ParseFile(t.File)
-            fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
+            //sourceMp4 := mp4.ParseFile(t.File)
+            //fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
+            fragment := mp4.CreateDashFragmentWithConf(t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
             fb := mp4.MapToBytes(fragment)
             sizeToWrite := len(fb)
             w.Header().Set("Content-Length", strconv.Itoa(sizeToWrite))
             for sizeToWrite > 0 {
-              log.Printf("PROUT")
               num, err := w.Write(fb)
               if err != nil {
                 http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
                 log.Printf("ERROR7: %v", err)
                 return
               }
-              log.Printf("POUET %d", num)
               sizeToWrite -= num
             }
-            log.Printf("SIZE of fb writed: %d/%d", num, len(fb))
             return
           }
         }
@@ -353,12 +345,20 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-  //flag.Parse()
+  documentRoot := flag.String("d", "", "Document Root (default: none)")
+  flag.Parse()
+
+  if *documentRoot == "" {
+    fmt.Printf("Please specify the document root for the web server with -d <document root>")
+    return
+  }
+
   mp4.Debug(false)
 
-  err := syscall.Chroot("/home/spe/Developpement/parse_mp4")
+  err := syscall.Chroot(*documentRoot)
   if err != nil {
-    panic(err)
+    fmt.Printf("Please run Afrostream Media Server as root, cannot chroot the document root directory for security: %v", err)
+    return
   }
 
   log.Printf(" [*] Running Afrostream Media Server, To exit press CTRL+C")
@@ -367,70 +367,4 @@ func main() {
   http.ListenAndServe(":8000", nil)
 
   return
-
-
-  /*f, err := os.Create("./bidule.mp4")
-  if err != nil {
-    panic(err)
-  }
-
-  f.Write(b)
-  f.Close()
-
-  fragment := mp4.CreateDashFragment(sourceMp4, 2, 8)
-  fb := mp4.MapToBytes(fragment)
-
-  f, err = os.Create("./bidule-2.mp4")
-  if err != nil {
-    panic(err)
-  }
-
-  f.Write(fb)
-  f.Close() */
 }
-
-/*func readFile(filename string) (data []byte) {
-  f, err := os.Open(filename)
-  if err != nil {
-    panic(err)
-  }
-  fi, err := f.Stat()
-  if err != nil {
-    panic(err)
-  }
-  size := fi.Size()
-  data = make([]byte, size)
-  offset := 0
-  for size > 0 {
-    count, err := f.Read(data[offset:])
-    if err != nil {
-      panic(err)
-    }
-    size -= int64(count)
-    offset += count
-  }
-
-  return
-}
-
-
-
-func main() {
-  configFilename := "./d4eed726882a4be3.json"
-
-  mp4.Debug(false)
-  log.Printf("Reading config file %s", configFilename)
-  data := readFile(configFilename)
-
-  var jConfig JsonConfig
-  err := json.Unmarshal(data, &jConfig)
-  if err != nil {
-    panic(err)
-  }
-  log.Printf("CONFIG is %+v", jConfig)
-
-  dashManifestName := configFilename[0:len(configFilename) - len(path.Ext(configFilename))] + ".mpd"
-  log.Printf("Creating DASH manifest %s", dashManifestName)
-
-  createDashManifest(dashManifestName, jConfig)
-}*/

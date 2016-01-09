@@ -6,12 +6,10 @@ import (
 	"flag"
 	"mp4"
 	"encoding/json"
-	"encoding/binary"
 )
 
 func parseAllFiles(files []string) (mp4Files map[string][]mp4.Mp4) {
   mp4Files = make(map[string][]mp4.Mp4)
-  fmt.Printf("mp4files is %+v", mp4Files)
   for _, filename := range files {
     mp4File := mp4.ParseFile(filename)
     if mp4File.IsVideo == true {
@@ -44,7 +42,6 @@ func main() {
   segmentDuration := flag.Uint("d", 10, "segment duration (default: 10)")
   flag.Parse()
 
-  fmt.Printf("%+v", flag.Args)
   fmt.Printf("%s", *jsonFilename)
 
   mp4Files := parseAllFiles(flag.Args())
@@ -74,6 +71,10 @@ func main() {
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
     t.Name = "video_eng"
     t.File = mp4File.Filename
+    t.Config.StszBoxOffset = stsz.Offset
+    t.Config.StszBoxSize = stsz.Size
+    t.Config.MdatBoxOffset = mdat.Offset
+    t.Config.MdatBoxSize = mdat.Size
     t.Config.Type = "video"
     t.Config.Rate = 0x00010000
     t.Config.Volume = 0x0100
@@ -83,7 +84,6 @@ func main() {
     t.Config.Language[1] = byte((0x03e0 & mdhd.Language) >> 5) + 0x60
     t.Config.Language[2] = byte(0x1f & mdhd.Language) + 0x60
     t.Config.HandlerType = hdlr.HandlerType
-    t.Config.MdatSize = mdat.Size
     t.Config.SampleDelta = stts.Entries[0].SampleDelta
     t.Config.Video = new(mp4.DashVideoEntry)
     t.Config.Video.Width = avc1.Width
@@ -102,28 +102,8 @@ func main() {
     t.Config.Video.PPSEntryCount = avcC.PPSEntryCount
     t.Config.Video.PPSSize = avcC.PPSSize
     t.Config.Video.PPSData = avcC.PPSData
-    var keyFrameId uint32
-    var i uint32
-    var j uint32
-    j = 0
-    keyFrameId = stss.SampleNumber[j] - 1
-    t.Config.Video.TrunData = make([]byte, stsz.SampleCount * 2 * 4)
-    for i = 0; i < stsz.SampleCount; i++ {
-      if stsz.SampleSize == 0 {
-        binary.BigEndian.PutUint32(t.Config.Video.TrunData[i*2:i*2+4], stsz.EntrySize[i])
-      } else {
-        binary.BigEndian.PutUint32(t.Config.Video.TrunData[i*2:i*2+4], stsz.SampleSize)
-      }
-      if i == keyFrameId {
-        binary.BigEndian.PutUint32(t.Config.Video.TrunData[i*2+1:i*2+1+4], 37748800)
-        j++
-        if j < stss.EntryCount {
-          keyFrameId = stss.SampleNumber[j] - 1
-        }
-      } else {
-        binary.BigEndian.PutUint32(t.Config.Video.TrunData[i*2+1:i*2+1+4], 21037248)
-      }
-    }
+    t.Config.Video.StssBoxOffset = stss.Offset
+    t.Config.Video.StssBoxSize = stss.Size
     jConf.Tracks["video"] = append(jConf.Tracks["video"], t)
   }
 
@@ -138,6 +118,10 @@ func main() {
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
     t.Name = "audio_eng"
     t.File = mp4File.Filename
+    t.Config.StszBoxOffset = stsz.Offset
+    t.Config.StszBoxSize = stsz.Size
+    t.Config.MdatBoxOffset = mdat.Offset
+    t.Config.MdatBoxSize = mdat.Size
     t.Config.Type = "audio"
     t.Config.Rate = 0x00010000
     t.Config.Volume = 0x0100
@@ -147,22 +131,12 @@ func main() {
     t.Config.Language[1] = byte((0x03e0 & mdhd.Language) >> 5) + 0x60
     t.Config.Language[2] = byte(0x1f & mdhd.Language) + 0x60
     t.Config.HandlerType = hdlr.HandlerType
-    t.Config.MdatSize = mdat.Size
     t.Config.SampleDelta = stts.Entries[0].SampleDelta
     t.Config.Audio = new(mp4.DashAudioEntry)
     t.Config.Audio.NumberOfChannels = mp4a.NumberOfChannels
     t.Config.Audio.SampleSize = mp4a.SampleSize
     t.Config.Audio.CompressionId = mp4a.CompressionId
     t.Config.Audio.SampleRate = mp4a.SampleRate
-    var i uint32
-    t.Config.Audio.TrunData = make([]byte, stsz.SampleCount * 4)
-    for i = 0; i < stsz.SampleCount; i++ {
-      if stsz.SampleSize == 0 {
-        binary.BigEndian.PutUint32(t.Config.Audio.TrunData[i:i+4], stsz.EntrySize[i])
-      } else {
-        binary.BigEndian.PutUint32(t.Config.Audio.TrunData[i:i+4], stsz.SampleSize)
-      }
-    }
     jConf.Tracks["audio"] = append(jConf.Tracks["audio"], t)
   }
 
