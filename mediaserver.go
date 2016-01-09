@@ -1,0 +1,436 @@
+package main
+
+import (
+        "os"
+	"mp4"
+        "log"
+        "net/http"
+        //"io"
+        "io/ioutil"
+        "path"
+        "syscall"
+        "strings"
+        "encoding/json"
+        "strconv"
+        "errors"
+	"fmt"
+)
+
+func readFile(filename string) (data []byte) {
+  f, err := os.Open(filename)
+  if err != nil {
+    panic(err)
+  }
+  fi, err := f.Stat()
+  if err != nil {
+    panic(err)
+  }
+  size := fi.Size()
+  data = make([]byte, size)
+  offset := 0
+  for size > 0 {
+    count, err := f.Read(data[offset:])
+    if err != nil {
+      panic(err)
+    }
+    size -= int64(count)
+    offset += count
+  }
+
+  return
+}
+
+func createAudioAdaptationSet(tracks []mp4.TrackEntry, videoId string, sDuration uint32) (s string, err error) {
+  var minBandwidth uint64
+  var maxBandwidth uint64
+
+  minBandwidth = 0
+  maxBandwidth = 0
+  for _, t := range tracks {
+    if minBandwidth == 0 || t.Bandwidth < minBandwidth {
+      minBandwidth = t.Bandwidth
+    }
+    if maxBandwidth == 0 || t.Bandwidth > maxBandwidth {
+      maxBandwidth = t.Bandwidth
+    }
+  }
+  if minBandwidth == 0 {
+    err = errors.New("cannot found valid audio tracks")
+    return
+  }
+  s = `    <AdaptationSet` + "\n"
+  s += fmt.Sprintf(`      group="%d"`, 1) + "\n"
+  s += `      contentType="audio"` + "\n"
+  s += `      lang="en"` + "\n"
+  s += fmt.Sprintf(`      minBandwidth="%d"`, minBandwidth) + "\n"
+  s += fmt.Sprintf(`      maxBandwidth="%d"`, maxBandwidth) + "\n"
+  s += `      segmentAlignment="true"` + "\n"
+  s += fmt.Sprintf(`      audioSamplingRate="%d"`, tracks[0].Config.Timescale) + "\n"
+  s += `      mimeType="audio/mp4"` + "\n"
+  s += `      codecs="mp4a.40.2">` + "\n"
+  s += `      <AudioChannelConfiguration` + "\n"
+  s += `        schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011"` + "\n"
+  s += fmt.Sprintf(`        value="%d">`, tracks[0].Config.Audio.NumberOfChannels) + "\n"
+  s += `      </AudioChannelConfiguration>` + "\n"
+  s += `      <SegmentTemplate` + "\n"
+  s += fmt.Sprintf(`        timescale="%d"`, tracks[0].Config.Timescale) + "\n"
+  s += fmt.Sprintf(`        initialization="%s-$RepresentationID$.dash"`, videoId) + "\n"
+  s += fmt.Sprintf(`        media="%s-$RepresentationID$-$Number$.m4s"`, videoId) + "\n"
+  s += `        startNumber="1"` + "\n"
+  s += fmt.Sprintf(`        duration="%d">`, sDuration * tracks[0].Config.Timescale) + "\n"
+  s += `      </SegmentTemplate>` + "\n"
+  for _, t := range tracks {
+    s += `      <Representation` + "\n"
+    s += fmt.Sprintf(`        id="%s=%d"`, t.Name, t.Bandwidth) + "\n"
+    s += fmt.Sprintf(`        bandwidth="%d">`, t.Bandwidth) + "\n"
+    s += `      </Representation>` + "\n"
+  }
+  s += `    </AdaptationSet>` + "\n"
+
+  return
+}
+
+func createVideoAdaptationSet(tracks []mp4.TrackEntry, videoId string, sDuration uint32) (s string, err error) {
+  var minBandwidth uint64
+  var maxBandwidth uint64
+  var minWidth uint16
+  var maxWidth uint16
+  var minHeight uint16
+  var maxHeight uint16
+
+  minBandwidth = 0
+  maxBandwidth = 0
+  minWidth = 0
+  maxWidth = 0
+  minHeight = 0
+  maxHeight = 0
+  for _, t := range tracks {
+    if minBandwidth == 0 || t.Bandwidth < minBandwidth {
+      minBandwidth = t.Bandwidth
+    }
+    if maxBandwidth == 0 || t.Bandwidth > maxBandwidth {
+      maxBandwidth = t.Bandwidth
+    }
+    if minWidth == 0 || t.Config.Video.Width < minWidth {
+      minWidth = t.Config.Video.Width
+    }
+    if maxWidth == 0 || t.Config.Video.Width > maxWidth {
+      maxWidth = t.Config.Video.Width
+    }
+    if minHeight == 0 || t.Config.Video.Height < minWidth {
+      minHeight = t.Config.Video.Height
+    }
+    if maxHeight == 0 || t.Config.Video.Height > maxWidth {
+      maxHeight = t.Config.Video.Height
+    }
+  }
+  if minBandwidth == 0 {
+    err = errors.New("cannot found valid video tracks")
+    return
+  }
+  s = `    <AdaptationSet` + "\n"
+  s += fmt.Sprintf(`      group="%d"`, 2) + "\n"
+  s += `      contentType="video"` + "\n"
+  s += `      lang="en"` + "\n"
+  s += fmt.Sprintf(`      minBandwidth="%d"`, minBandwidth) + "\n"
+  s += fmt.Sprintf(`      maxBandwidth="%d"`, maxBandwidth) + "\n"
+  s += fmt.Sprintf(`      minWidth="%d"`, minWidth) + "\n"
+  s += fmt.Sprintf(`      maxWidth="%d"`, maxWidth) + "\n"
+  s += fmt.Sprintf(`      minHeight="%d"`, minHeight) + "\n"
+  s += fmt.Sprintf(`      maxHeight="%d"`, maxHeight) + "\n"
+  s += `      segmentAlignment="true"` + "\n"
+  s += `      mimeType="video/mp4"` + "\n"
+  s += `      startWithSAP="1">` + "\n"
+  s += `      <SegmentTemplate` + "\n"
+  s += fmt.Sprintf(`        timescale="%d"`, tracks[0].Config.Timescale) + "\n"
+  s += fmt.Sprintf(`        initialization="%s-$RepresentationID$.dash"`, videoId) + "\n"
+  s += fmt.Sprintf(`        media="%s-$RepresentationID$-$Number$.m4s"`, videoId) + "\n"
+  s += `        startNumber="1"` + "\n"
+  s += fmt.Sprintf(`        duration="%d">`, sDuration * tracks[0].Config.Timescale) + "\n"
+  s += `      </SegmentTemplate>` + "\n"
+
+  for _, t := range tracks {
+    s += `      <Representation` + "\n"
+    s += fmt.Sprintf(`        id="%s=%d"`, t.Name, t.Bandwidth) + "\n"
+    s += fmt.Sprintf(`        bandwidth="%d"`, t.Bandwidth) + "\n"
+    s += fmt.Sprintf(`        width="%d"`, t.Config.Video.Width) + "\n"
+    s += fmt.Sprintf(`        height="%d"`, t.Config.Video.Height) + "\n"
+    s += fmt.Sprintf(`        codecs="avc1.%.2X%.2X%.2X"`, t.Config.Video.CodecInfo[0], t.Config.Video.CodecInfo[1], t.Config.Video.CodecInfo[2]) + "\n"
+    s += `        scanType="progressive">` + "\n"
+    s += `      </Representation>` + "\n"
+  }
+  s += `    </AdaptationSet>` + "\n"
+
+  return
+}
+
+func createDashManifest(jConf mp4.JsonConfig, videoId string) (dashManifest string) {
+  dashManifest = ""
+  dashManifest += `<?xml version="1.0" encoding="utf-8"?>` + "\n"
+  dashManifest += `<!-- Created with Afrostream Media Server -->` + "\n"
+  dashManifest += `<MPD` + "\n"
+  dashManifest += `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"` + "\n"
+  dashManifest += `xmlns="urn:mpeg:dash:schema:mpd:2011"` + "\n"
+  dashManifest += `xsi:schemaLocation="urn:mpeg:dash:schema:mpd:2011 http://standards.iso.org/ittf/PubliclyAvailableStandards/MPEG-DASH_schema_files/DASH-MPD.xsd"` + "\n"
+  dashManifest += `type="static"` + "\n"
+  dashManifest += `mediaPresentationDuration="PT1H37M7.797334S"` + "\n"
+  dashManifest += `maxSegmentDuration="PT9S"` + "\n"
+  dashManifest += `minBufferTime="PT10S"` + "\n"
+  dashManifest += `profiles="urn:mpeg:dash:profile:isoff-live:2011">` + "\n"
+  dashManifest += `  <Period>` + "\n"
+  dashManifest += `    <BaseURL>dash/</BaseURL>` + "\n"
+
+  a, err := createAudioAdaptationSet(jConf.Tracks["audio"], videoId, jConf.SegmentDuration)
+  if err != nil {
+    return
+  }
+  dashManifest += a
+  a, err = createVideoAdaptationSet(jConf.Tracks["video"], videoId, jConf.SegmentDuration)
+  if err != nil {
+    return
+  }
+  dashManifest += a
+
+  dashManifest += `  </Period>` + "\n"
+  dashManifest += `</MPD>` + "\n"
+
+  return
+}
+
+func httpServerLoadPage(path string) (content []byte, err error) {
+  content, err = ioutil.ReadFile(path)
+
+  return
+}
+
+func httpRootServer(w http.ResponseWriter, r *http.Request) {
+  log.Printf("w is %v", w)
+  w.Header().Set("Access-Control-Allow-Origin", "*")
+  w.Header().Set("Access-Control-Allow-Credentials", "true")
+  w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+  w.Header().Set("Access-Control-Allow-Headers", "DNT,X-CustomHeader,Keep-Alive,Range,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type")
+  w.Header().Set("Connection", "close")
+  log.Printf("REQUEST IS %+v", r.URL)
+  pathStr := string(r.URL.Path[:])
+  splitDirs := strings.Split(pathStr, "/")
+  videoId := splitDirs[1][0:len(splitDirs[1]) - len(path.Ext(splitDirs[1]))]
+  if len(splitDirs) > 2 && splitDirs[2] == "dash" {
+    w.Header().Set("Content-Type", "video/mp4")
+    switch path.Ext(pathStr) {
+      case ".dash":
+        split1 := strings.Split(pathStr, "-")
+        split2 := strings.Split(split1[1], "=")
+        split3 := strings.Split(split2[1], ".")
+        split4 := strings.Split(split2[0], "_")
+
+        trackName := split2[0]
+        trackType := split4[0]
+        var trackBandwidth uint64
+        num, err := strconv.ParseUint(split3[0], 10, 64)
+        if err != nil {
+          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+          log.Printf("ERROR1")
+          return
+        }
+        trackBandwidth = num
+        log.Printf("videoId is %s", videoId)
+        data := readFile(videoId + ".json")
+
+        var jConfig mp4.JsonConfig
+        err = json.Unmarshal(data, &jConfig)
+        if err != nil {
+          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+          log.Printf("ERROR2")
+          return
+        }
+
+        for _, t := range jConfig.Tracks[trackType] {
+          log.Printf("if %s == %s && %d == %d", t.Name, trackName, t.Bandwidth, trackBandwidth)
+          if t.Name == trackName && t.Bandwidth == trackBandwidth {
+            log.Printf("file requested found, it's %s", t.File)
+            //sourceMp4 := mp4.ParseFile(t.Src)
+            dashInit := mp4.CreateDashInitWithConf(t.Config)
+            b := mp4.MapToBytes(dashInit)
+            w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+            _, err := w.Write(b)
+            if err != nil {
+              http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+              log.Printf("ERROR3")
+              return
+            }
+          }
+        }
+      case ".m4s":
+        split1 := strings.Split(pathStr, "-")
+        split2 := strings.Split(split1[1], "=")
+        split3 := strings.Split(split1[2], ".")
+        split4 := strings.Split(split2[0], "_")
+
+        trackName := split2[0]
+        trackType := split4[0]
+        var trackBandwidth uint64
+        num, err := strconv.ParseUint(split2[1], 10, 64)
+        if err != nil {
+          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+          log.Printf("ERROR4")
+          return
+        }
+        trackBandwidth = num
+        num, err = strconv.ParseUint(split3[0], 10, 32)
+        if err != nil {
+          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+          log.Printf("ERROR5")
+          return
+        }
+        var segmentNumber uint32
+        segmentNumber = uint32(num)
+
+        data := readFile(videoId + ".json")
+        var jConfig mp4.JsonConfig
+        err = json.Unmarshal(data, &jConfig)
+        if err != nil {
+          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+          log.Printf("ERROR6")
+          return
+        }
+
+        for _, t := range jConfig.Tracks[trackType] {
+          log.Printf("%s == %s && %d == %d", t.Name, trackName, t.Bandwidth, trackBandwidth)
+          if t.Name == trackName && t.Bandwidth == trackBandwidth {
+            log.Printf("file requested found, it's %s", t.File)
+            sourceMp4 := mp4.ParseFile(t.File)
+            fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
+            fb := mp4.MapToBytes(fragment)
+            sizeToWrite := len(fb)
+            w.Header().Set("Content-Length", strconv.Itoa(sizeToWrite))
+            for sizeToWrite > 0 {
+              log.Printf("PROUT")
+              num, err := w.Write(fb)
+              if err != nil {
+                http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+                log.Printf("ERROR7: %v", err)
+                return
+              }
+              log.Printf("POUET %d", num)
+              sizeToWrite -= num
+            }
+            log.Printf("SIZE of fb writed: %d/%d", num, len(fb))
+            return
+          }
+        }
+      }
+  } else {
+    pathStr := r.URL.Path[:]
+    if path.Ext(pathStr) == ".mpd" || path.Ext(pathStr) == ".ism" {
+      w.Header().Set("Content-Type", "application/dash+xml")
+      split := strings.Split(pathStr, ".")
+      videoId := path.Base(split[0])
+      data := readFile(split[0] + ".json")
+      var jConfig mp4.JsonConfig
+      err := json.Unmarshal(data, &jConfig)
+      if err != nil {
+        http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+        log.Printf("ERROR9")
+        return
+      }
+      mpdContent := createDashManifest(jConfig, videoId)
+      w.Write([]byte(mpdContent))
+    } else {
+      w.Header().Set("Content-Type", "application/octet-stream")
+      html, err := httpServerLoadPage(pathStr)
+      if err != nil {
+        http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+        log.Printf("ERROR8")
+        return
+      } else {
+        w.Header().Set("Content-Length", strconv.Itoa(len(html)))
+        w.Write(html)
+      }
+    }
+  }
+
+  return
+}
+
+func main() {
+  //flag.Parse()
+  mp4.Debug(false)
+
+  err := syscall.Chroot("/home/spe/Developpement/parse_mp4")
+  if err != nil {
+    panic(err)
+  }
+
+  log.Printf(" [*] Running Afrostream Media Server, To exit press CTRL+C")
+
+  http.HandleFunc("/", httpRootServer)
+  http.ListenAndServe(":8000", nil)
+
+  return
+
+
+  /*f, err := os.Create("./bidule.mp4")
+  if err != nil {
+    panic(err)
+  }
+
+  f.Write(b)
+  f.Close()
+
+  fragment := mp4.CreateDashFragment(sourceMp4, 2, 8)
+  fb := mp4.MapToBytes(fragment)
+
+  f, err = os.Create("./bidule-2.mp4")
+  if err != nil {
+    panic(err)
+  }
+
+  f.Write(fb)
+  f.Close() */
+}
+
+/*func readFile(filename string) (data []byte) {
+  f, err := os.Open(filename)
+  if err != nil {
+    panic(err)
+  }
+  fi, err := f.Stat()
+  if err != nil {
+    panic(err)
+  }
+  size := fi.Size()
+  data = make([]byte, size)
+  offset := 0
+  for size > 0 {
+    count, err := f.Read(data[offset:])
+    if err != nil {
+      panic(err)
+    }
+    size -= int64(count)
+    offset += count
+  }
+
+  return
+}
+
+
+
+func main() {
+  configFilename := "./d4eed726882a4be3.json"
+
+  mp4.Debug(false)
+  log.Printf("Reading config file %s", configFilename)
+  data := readFile(configFilename)
+
+  var jConfig JsonConfig
+  err := json.Unmarshal(data, &jConfig)
+  if err != nil {
+    panic(err)
+  }
+  log.Printf("CONFIG is %+v", jConfig)
+
+  dashManifestName := configFilename[0:len(configFilename) - len(path.Ext(configFilename))] + ".mpd"
+  log.Printf("Creating DASH manifest %s", dashManifestName)
+
+  createDashManifest(dashManifestName, jConfig)
+}*/
