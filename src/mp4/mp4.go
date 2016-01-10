@@ -234,6 +234,19 @@ type SttsBoxEntry struct {
   SampleDelta uint32
 }
 
+type CttsBox struct {
+  Size uint32
+  Version byte
+  Reserved [3]byte
+  EntryCount uint32
+  Entries []CttsBoxEntry
+}
+
+type CttsBoxEntry struct {
+  SampleCount uint32
+  SampleOffset uint32
+}
+
 type StssBox struct {
   Size uint32
   Offset int64
@@ -1570,6 +1583,49 @@ func (stts SttsBox) Bytes() (data []byte) {
   return
 }
 
+func readCttsBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  data := make ([]byte, size)
+  _, err := f.Read(data)
+  if err != nil {
+    panic(err)
+  }
+
+  var ctts CttsBox
+  ctts.Size = size
+  ctts.Version = data[0]
+  copy(ctts.Reserved[:], data[1:4])
+  ctts.EntryCount = binary.BigEndian.Uint32(data[4:8])
+  ctts.Entries = make([]CttsBoxEntry, ctts.EntryCount)
+  var i uint32
+  for i = 0; i < ctts.EntryCount; i++ {
+    ctts.Entries[i].SampleCount = binary.BigEndian.Uint32(data[8+(i*8):12+(i*8)])
+    ctts.Entries[i].SampleOffset = binary.BigEndian.Uint32(data[12+(i*8):16+(i*8)])
+  }
+  addBox(mp4, boxPath, ctts)
+  dumpBox(boxPath, ctts)
+}
+
+func (ctts CttsBox) Bytes() (data []byte) {
+  var offset uint32
+  boxSize := ctts.Size + 8
+  data = make([]byte, boxSize)
+
+  binary.BigEndian.PutUint32(data[0:4], boxSize)
+  copy(data[4:8], []byte{ 'c', 't', 't', 's' })
+  data[8] = ctts.Version
+  copy(data[9:12], ctts.Reserved[:])
+  binary.BigEndian.PutUint32(data[12:16], ctts.EntryCount)
+  offset = 16
+  for _, v := range ctts.Entries {
+    binary.BigEndian.PutUint32(data[offset:offset+4], v.SampleCount)
+    offset += 4
+    binary.BigEndian.PutUint32(data[offset:offset+4], v.SampleOffset)
+    offset += 4
+  }
+
+  return
+}
+
 func readStssBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
   var stss StssBox
   stss.Offset, _ = f.Seek(0, os.SEEK_CUR)
@@ -2156,6 +2212,9 @@ func boxToBytes(box interface{}, boxFullPath string) ([]byte) {
     case "stts":
       stts := box.(SttsBox)
       return stts.Bytes()
+    case "ctts":
+      ctts := box.(CttsBox)
+      return ctts.Bytes()
     case "stsc":
       stsc := box.(StscBox)
       return stsc.Bytes()
@@ -2237,6 +2296,7 @@ func MapToBytes(mp4 map[string][]interface{}) (data []byte) {
 		"moov.trak.mdia.minf.stbl.stsd.avc1.avcC",
 		"moov.trak.mdia.minf.stbl.stsd.avc1.btrt",
                 "moov.trak.mdia.minf.stbl.stts",
+                "moov.trak.mdia.minf.stbl.ctts",
                 "moov.trak.mdia.minf.stbl.stsc",
                 "moov.trak.mdia.minf.stbl.stsz",
                 "moov.trak.mdia.minf.stbl.stco",
@@ -3116,6 +3176,7 @@ func init() {
     "moov.trak.mdia.minf.dinf.dref": readDrefBox,
     "moov.trak.mdia.minf.stbl": readBoxes,
     "moov.trak.mdia.minf.stbl.stts" : readSttsBox,
+    "moov.trak.mdia.minf.stbl.ctts" : readCttsBox,
     "moov.trak.mdia.minf.stbl.stsd" : readStsdBox,
     "moov.trak.mdia.minf.stbl.stsd.mp4a" : readMp4aBox,
     "moov.trak.mdia.minf.stbl.stsd.mp4a.esds" : readEsdsBox,
