@@ -2905,8 +2905,8 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   // FREE
   var free FreeBox
   //free.Data = []byte("AMS by spebsd@gmail.com")
-  //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
-  free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 13 ,13 ,13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13 }
+  free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
+  //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 13 ,13 ,13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13 }
   free.Size = uint32(len(free.Data))
   replaceBox(fmp4, "free", free)
 
@@ -2968,10 +2968,11 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
       return
     }
   }
-  sampleStart := uint32((((int64(fragmentNumber) - 1) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta))
-  sampleEnd := uint32((((int64(fragmentNumber) * int64(fragmentDuration)) * int64(dConf.Timescale)) / int64(dConf.SampleDelta)) - 1)
 
+  sampleStart := uint32((((float64(fragmentNumber) - 1) * float64(fragmentDuration)) * float64(dConf.Timescale)) / float64(dConf.SampleDelta))
+  sampleEnd := uint32(((float64(fragmentNumber) * float64(fragmentDuration)) * float64(dConf.Timescale)) / float64(dConf.SampleDelta))
 
+  log.Printf("ORIG %d -> %d", sampleStart, sampleEnd)
   // Search Positions in STSS Box
   mp4 := make(map[string][]interface{})
   var stss StssBox
@@ -2984,7 +2985,7 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
     var i uint32
     sampleStartSet := false
     for i = 0; (i < stss.EntryCount) && ((stss.SampleNumber[i] - 1) < sampleEnd); i++ {
-      if stss.SampleNumber[i] > sampleStart {
+      if (stss.SampleNumber[i] - 1) >= sampleStart {
         if sampleStartSet == false  {
           sampleStart = stss.SampleNumber[i] - 1
           sampleStartSet = true
@@ -2993,11 +2994,14 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
       }
     }
     if i < stss.EntryCount {
-      sampleEnd = stss.SampleNumber[i] - 2
+      sampleEnd = stss.SampleNumber[i] - 1
     } else {
       lastSegment = true
     }
   }
+  sampleEnd--
+
+  log.Printf("%d -> %d", sampleStart, sampleEnd)
 
   // Read STSZ Box
   f.Seek(dConf.StszBoxOffset, 0)
