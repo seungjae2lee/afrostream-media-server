@@ -413,7 +413,7 @@ type TrunBoxSample struct {
   Duration uint32
   Size uint32
   Flags uint32
-  CompositionTimeOffset uint32
+  CompositionTimeOffset int64
 }
 
 type TfdtBox struct {
@@ -1890,7 +1890,11 @@ func readTrunBox(f *os.File, size uint32, level int, boxPath string, mp4 map[str
         dataOffset += 4
       }
       if trun.Flags[1] & 0x08 != 0 {
-        trun.Samples[i].CompositionTimeOffset = binary.BigEndian.Uint32(data[dataOffset:dataOffset+4])
+        if (trun.Version == 0) {
+          trun.Samples[i].CompositionTimeOffset = int64(binary.BigEndian.Uint32(data[dataOffset:dataOffset+4]))
+        } else {
+          trun.Samples[i].CompositionTimeOffset = int64(int32(binary.BigEndian.Uint32(data[dataOffset:dataOffset+4])))
+        }
         dataOffset += 4
       }
     }
@@ -1933,7 +1937,7 @@ func (trun TrunBox) Bytes() (data []byte) {
         dataOffset += 4
       }
       if trun.Flags[1] & 0x08 != 0 {
-        binary.BigEndian.PutUint32(data[dataOffset:dataOffset+4], trun.Samples[i].CompositionTimeOffset)
+        binary.BigEndian.PutUint32(data[dataOffset:dataOffset+4], uint32(trun.Samples[i].CompositionTimeOffset))
         dataOffset += 4
       }
     }
