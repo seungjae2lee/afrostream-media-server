@@ -63,10 +63,17 @@ func main() {
     mdhd := mp4File.Boxes["moov.trak.mdia.mdhd"][0].(mp4.MdhdBox)
     hdlr := mp4File.Boxes["moov.trak.mdia.hdlr"][0].(mp4.HdlrBox)
     stts := mp4File.Boxes["moov.trak.mdia.minf.stbl.stts"][0].(mp4.SttsBox)
+    var ctts mp4.CttsBox
+    cttsBoxPresent := false
+    if mp4File.Boxes["moov.trak.mdia.minf.stbl.ctts"] != nil {
+      ctts = mp4File.Boxes["moov.trak.mdia.minf.stbl.ctts"][0].(mp4.CttsBox)
+      cttsBoxPresent = true
+    }
     stsz := mp4File.Boxes["moov.trak.mdia.minf.stbl.stsz"][0].(mp4.StszBox)
     stss := mp4File.Boxes["moov.trak.mdia.minf.stbl.stss"][0].(mp4.StssBox)
     avc1 := mp4File.Boxes["moov.trak.mdia.minf.stbl.stsd.avc1"][0].(mp4.Avc1Box)
     avcC := mp4File.Boxes["moov.trak.mdia.minf.stbl.stsd.avc1.avcC"][0].(mp4.AvcCBox)
+    elst := mp4File.Boxes["moov.trak.edts.elst"][0].(mp4.ElstBox)
     var t mp4.TrackEntry
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
     t.Name = "video_eng"
@@ -85,6 +92,7 @@ func main() {
     t.Config.Language[2] = byte(0x1f & mdhd.Language) + 0x60
     t.Config.HandlerType = hdlr.HandlerType
     t.Config.SampleDelta = stts.Entries[0].SampleDelta
+    t.Config.MediaTime = elst.MediaTime
     t.Config.Video = new(mp4.DashVideoEntry)
     t.Config.Video.Width = avc1.Width
     t.Config.Video.Height = avc1.Height
@@ -104,6 +112,10 @@ func main() {
     t.Config.Video.PPSData = avcC.PPSData
     t.Config.Video.StssBoxOffset = stss.Offset
     t.Config.Video.StssBoxSize = stss.Size
+    if cttsBoxPresent == true {
+      t.Config.Video.CttsBoxOffset = ctts.Offset
+      t.Config.Video.CttsBoxSize = ctts.Size
+    }
     jConf.Tracks["video"] = append(jConf.Tracks["video"], t)
   }
 
@@ -114,6 +126,7 @@ func main() {
     stts := mp4File.Boxes["moov.trak.mdia.minf.stbl.stts"][0].(mp4.SttsBox)
     stsz := mp4File.Boxes["moov.trak.mdia.minf.stbl.stsz"][0].(mp4.StszBox)
     mp4a := mp4File.Boxes["moov.trak.mdia.minf.stbl.stsd.mp4a"][0].(mp4.Mp4aBox)
+    elst := mp4File.Boxes["moov.trak.edts.elst"][0].(mp4.ElstBox)
     var t mp4.TrackEntry
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
     t.Name = "audio_eng"
@@ -132,6 +145,7 @@ func main() {
     t.Config.Language[2] = byte(0x1f & mdhd.Language) + 0x60
     t.Config.HandlerType = hdlr.HandlerType
     t.Config.SampleDelta = stts.Entries[0].SampleDelta
+    t.Config.MediaTime = elst.MediaTime
     t.Config.Audio = new(mp4.DashAudioEntry)
     t.Config.Audio.NumberOfChannels = mp4a.NumberOfChannels
     t.Config.Audio.SampleSize = mp4a.SampleSize

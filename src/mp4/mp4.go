@@ -51,6 +51,8 @@ type DashVideoEntry struct {
   PPSData []byte               // AVCC MP4 Box info (eg: 104 202 140 178)
   StssBoxOffset int64
   StssBoxSize uint32
+  CttsBoxOffset int64
+  CttsBoxSize uint32
 }
 
 type DashConfig struct {
@@ -66,6 +68,7 @@ type DashConfig struct {
   Language [3]byte             // ISO-639-2/T 3 letters code (eg: []byte{ 'e', 'n', 'g' }
   HandlerType uint32           // HDLR MP4 Box info (eg: 1986618469)
   SampleDelta uint32           // STTS MP4 Box SampleDelta via Entries[0] (eg: 1024)
+  MediaTime int64              // ELST MP4 Box MediaTime
 
   Audio *DashAudioEntry `json:",omitempty"`
   Video *DashVideoEntry `json:",omitempty"`
@@ -236,6 +239,7 @@ type SttsBoxEntry struct {
 
 type CttsBox struct {
   Size uint32
+  Offset int64
   Version byte
   Reserved [3]byte
   EntryCount uint32
@@ -367,6 +371,13 @@ type StszBox struct {
   SampleSize uint32
   SampleCount uint32
   EntrySize []uint32
+}
+
+type SdtpBox struct {
+  Size uint32
+  Version byte
+  SampleCount uint32
+  Entries []uint8
 }
 
 type StcoBox struct {
@@ -1497,6 +1508,46 @@ func (stsz StszBox) Bytes() (data []byte) {
   return
 }
 
+func readSdtpBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  var sdtp SdtpBox
+  data := make([]byte, size)
+  _, err := f.Read(data)
+  if err != nil {
+    panic(err)
+  }
+
+  sdtp.Size = size
+  sdtp.Version = data[0]
+  if mp4["moov.trak.mdia.minf.stbl.stsz"] != nil {
+    stsz := mp4["moov.trak.mdia.minf.stbl.stsz"][0].(StszBox)
+    sdtp.SampleCount = stsz.SampleCount
+    sdtp.Entries = make([]uint8, sdtp.SampleCount)
+    var i uint32
+    for i = 0; i < sdtp.SampleCount; i++ {
+      sdtp.Entries[i] = uint8(data[1+i])
+    }
+  } else {
+    sdtp.SampleCount = 0
+  }
+
+  return
+}
+
+func (sdtp SdtpBox) Bytes() (data []byte) {
+  boxSize := sdtp.Size + 8
+  data = make([]byte, boxSize)
+
+  binary.BigEndian.PutUint32(data[0:4], boxSize)
+  copy(data[4:8], []byte{ 's', 'd', 't', 'p' })
+  data[8] = sdtp.Version
+  var i uint32
+  for i = 0; i < sdtp.SampleCount; i++ {
+    data[9+i] = byte(sdtp.Entries[i])
+  }
+
+  return
+}
+
 func readStcoBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
   data := make([]byte, size)
   _, err := f.Read(data)
@@ -1584,13 +1635,14 @@ func (stts SttsBox) Bytes() (data []byte) {
 }
 
 func readCttsBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  var ctts CttsBox
+  ctts.Offset, _ = f.Seek(0, os.SEEK_CUR)
   data := make ([]byte, size)
   _, err := f.Read(data)
   if err != nil {
     panic(err)
   }
 
-  var ctts CttsBox
   ctts.Size = size
   ctts.Version = data[0]
   copy(ctts.Reserved[:], data[1:4])
@@ -2225,6 +2277,9 @@ func boxToBytes(box interface{}, boxFullPath string) ([]byte) {
     case "stsz":
       stsz := box.(StszBox)
       return stsz.Bytes()
+    case "sdtp":
+      sdtp := box.(SdtpBox)
+      return sdtp.Bytes()
     case "stco":
       stco := box.(StcoBox)
       return stco.Bytes()
@@ -2303,6 +2358,7 @@ func MapToBytes(mp4 map[string][]interface{}) (data []byte) {
                 "moov.trak.mdia.minf.stbl.ctts",
                 "moov.trak.mdia.minf.stbl.stsc",
                 "moov.trak.mdia.minf.stbl.stsz",
+                "moov.trak.mdia.minf.stbl.sdtp",
                 "moov.trak.mdia.minf.stbl.stco",
                 "moov.mvex",
                 "moov.mvex.mehd",
@@ -2959,6 +3015,7 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
 
 func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumber uint32, fragmentDuration uint32) (fmp4 map[string][]interface{}) {
   lastSegment := false
+  compositionTimeOffset := false
 
   f, err := os.Open(filename)
   if err != nil {
@@ -3015,6 +3072,15 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   tfhd.DefaultSampleDuration = dConf.SampleDelta
   replaceBox(fmp4, "moof.traf.tfhd", tfhd)
 
+  mp4 := make(map[string][]interface{})
+  var ctts CttsBox
+  if dConf.Type == "video" && dConf.Video.CttsBoxOffset != 0 {
+    f.Seek(dConf.Video.CttsBoxOffset, 0)
+    readCttsBox(f, dConf.Video.CttsBoxSize, 0, "moov.trak.mdia.minf.stbl.ctts", mp4)
+    ctts = mp4["moov.trak.mdia.minf.stbl.ctts"][0].(CttsBox)
+    compositionTimeOffset = true
+  }
+
   // TRUN
   var trun TrunBox
   trun.Version = 0
@@ -3024,9 +3090,16 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
     trun.Flags[2] = 0x01 // ISO/IEC 14496-12:2015 0x01 data-offset-present
   } else {
     if dConf.Type == "video" {
-      trun.Flags[0] = 0x00
-      trun.Flags[1] = 0x06
-      trun.Flags[2] = 0x01
+      if compositionTimeOffset == true {
+        trun.Flags[0] = 0x00
+        trun.Flags[1] = 0x08 | 0x04 | 0x02 // sample-composition-time-offsets-present & sample-flags-present & sample-size-present
+        trun.Flags[2] = 0x01
+        trun.Version = 1
+      } else {
+        trun.Flags[0] = 0x00
+        trun.Flags[1] = 0x04 | 0x02 // sample-flags-present & sample-size-present
+        trun.Flags[2] = 0x01
+      }
     } else {
       fmp4 = nil
       return
@@ -3036,9 +3109,7 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   sampleStart := uint32((((float64(fragmentNumber) - 1) * float64(fragmentDuration)) * float64(dConf.Timescale)) / float64(dConf.SampleDelta))
   sampleEnd := uint32(((float64(fragmentNumber) * float64(fragmentDuration)) * float64(dConf.Timescale)) / float64(dConf.SampleDelta))
 
-  log.Printf("ORIG %d -> %d", sampleStart, sampleEnd)
   // Search Positions in STSS Box
-  mp4 := make(map[string][]interface{})
   var stss StssBox
   var iFramesToSet []uint32
   if dConf.Type == "video" {
@@ -3065,8 +3136,6 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   }
   sampleEnd--
 
-  log.Printf("%d -> %d", sampleStart, sampleEnd)
-
   // Read STSZ Box
   f.Seek(dConf.StszBoxOffset, 0)
   var stszSize uint32
@@ -3082,6 +3151,10 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   trun.SampleCount = uint32(sampleEnd - sampleStart + 1)
   trun.Size = 12
   trun.Samples = make([]TrunBoxSample, trun.SampleCount)
+  var cttsOffset uint32
+  var cttsSampleCount uint32
+  cttsOffset = 0
+  cttsSampleCount = 0
   var mdat MdatBox
   mdat.Offset = dConf.MdatBoxOffset
   mdat.Size = 0
@@ -3093,8 +3166,23 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
     } else {
       mdat.Offset += int64(stsz.SampleSize)
     }
+    if compositionTimeOffset == true {
+      if cttsSampleCount > 0 {
+        cttsSampleCount--
+        if cttsSampleCount == 0 {
+          cttsOffset++
+        }
+      } else {
+        cttsSampleCount = ctts.Entries[cttsOffset].SampleCount - 1
+        if cttsSampleCount == 0 {
+          cttsOffset++
+        }
+      }
+    }
   }
   var size uint32
+  var lastCompositionTimeOffset int64
+  lastCompositionTimeOffset = 0
   for i = sampleStart; i <= sampleEnd; i++ {
     if stsz.SampleSize == 0 {
       size = stsz.EntrySize[i]
@@ -3106,6 +3194,29 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
     if dConf.Type == "video" {
       trun.Samples[i - sampleStart].Flags = 21037248
       trun.Size += 4
+      if compositionTimeOffset == true {
+        if lastCompositionTimeOffset != 0 {
+          trun.Samples[i - sampleStart].Flags = 25231552
+        }
+        trun.Samples[i - sampleStart].CompositionTimeOffset = int64(ctts.Entries[cttsOffset].SampleOffset) - dConf.MediaTime
+        if trun.Samples[i - sampleStart].CompositionTimeOffset > 0 {
+          lastCompositionTimeOffset = trun.Samples[i - sampleStart].CompositionTimeOffset
+        } else {
+          lastCompositionTimeOffset += trun.Samples[i - sampleStart].CompositionTimeOffset
+        }
+        trun.Size += 4
+        if cttsSampleCount > 0 {
+          cttsSampleCount--
+          if cttsSampleCount == 0 {
+            cttsOffset++
+          }
+        } else {
+          cttsSampleCount = ctts.Entries[cttsOffset].SampleCount - 1
+          if cttsSampleCount == 0 {
+            cttsOffset++
+          }
+        }
+      }
     }
     mdat.Size += size
   }
@@ -3149,7 +3260,6 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
   styp.CompatibleBrands[1] = [4]byte{ 'm', 's', 'd', 'h' }
   replaceBox(fmp4, "styp", styp)
 
-
   return
 }
 
@@ -3189,6 +3299,7 @@ func init() {
     "moov.trak.mdia.minf.stbl.stsd.avc1.btrt" : readBtrtBox,
     "moov.trak.mdia.minf.stbl.stsc" : readStscBox,
     "moov.trak.mdia.minf.stbl.stsz" : readStszBox,
+    "moov.trak.mdia.minf.stbl.sdtp" : readSdtpBox,
     "moov.trak.mdia.minf.stbl.stco" : readStcoBox,
     "moov.trak.mdia.minf.stbl.stss" : readStssBox,
     "moov.mvex": readBoxes,
