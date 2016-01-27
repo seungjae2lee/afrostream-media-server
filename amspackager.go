@@ -5,13 +5,56 @@ import (
 	"fmt"
 	"flag"
 	"mp4"
+        "path"
 	"encoding/json"
+	"errors"
 )
 
-func parseAllFiles(files []string) (mp4Files map[string][]mp4.Mp4) {
+type fileSlice []string
+type languageSlice []string
+
+type inputFile struct {
+  Filename string
+  Language string
+}
+
+// Global vars for Flags
+var inputFilenames fileSlice
+var languageCodes languageSlice
+
+func (s *fileSlice) String() string {
+  return fmt.Sprintf("%+v", *s)
+}
+
+func (s *fileSlice) Set(value string) error {
+  *s = append(*s, value)
+
+  return nil
+}
+
+func (s *languageSlice) String() string {
+  return fmt.Sprintf("%+v", *s)
+}
+
+func (s *languageSlice) Set(value string) error {
+  if inputFilenames == nil {
+    return errors.New("no input filenames specified before -l option")
+  }
+  if len(value) != 3 {
+    return errors.New("ISO-639-2 language code is 3 character size (eg: eng)")
+  }
+  for len(*s) < len(inputFilenames) - 1 {
+    *s = append(*s, "")
+  }
+  *s = append(*s, value)
+
+  return nil
+}
+
+func parseMp4Files(files []inputFile) (mp4Files map[string][]mp4.Mp4) {
   mp4Files = make(map[string][]mp4.Mp4)
-  for _, filename := range files {
-    mp4File := mp4.ParseFile(filename)
+  for _, in := range files {
+    mp4File := mp4.ParseFile(in.Filename, in.Language)
     if mp4File.IsVideo == true {
       mp4Files["video"] = append(mp4Files["video"], mp4File)
     }
@@ -23,28 +66,63 @@ func parseAllFiles(files []string) (mp4Files map[string][]mp4.Mp4) {
   return
 }
 
+func parseFlags(f *flag.Flag) {
+  fmt.Printf("flag parsed: %+v\n", *f)
+}
+
 func main() {
   if len(os.Args) < 2 {
     fmt.Printf("Afrostream Media Server version 0.1     Sebastien Petit <spebsd@gmail.com>\n")
-    fmt.Printf("Usage: amspackager -o [json output filename] < -d [segment duration] > [mp4 input files]\n")
+    fmt.Printf("Usage: amspackager -o [json output filename] < -d [segment duration] > { -i [mp4 or vtt input file] < -l [language] > ... }\n")
     fmt.Printf("  < ... > options are optional\n")
-    fmt.Printf("  [mp4 input files]     must be audio mp4a or video avc1 files\n")
-    fmt.Printf("                        only one mp4 file per channel is supported\n")
-    fmt.Printf("  -d [segment duration] duration of each segments in seconds\n")
-    fmt.Printf("                        default value: 10\n")
+    fmt.Printf("  [mp4 or vtt input file]     must be audio mp4a / video avc1 / vtt subtitles files\n")
+    fmt.Printf("                              only one stream per mp4 file is supported\n")
+    fmt.Printf("  -d [segment duration]       duration of each segments in seconds\n")
+    fmt.Printf("                              default value: 10\n")
+    fmt.Printf("  -l [language]               ISO-639-2 language code for the input file preceeding this argument\n")
     fmt.Printf("\n")
-    fmt.Printf("Example: amspackager -o video.json -d 8 video-384k.mp4 video-1500k.mp4 video-2950k.mp4 audio-128k.mp4\n")
+    fmt.Printf("Example: amspackager -o video.json -d 8 -i video-384k.mp4 -i video-1500k.mp4 -i video-2950k.mp4 -i audio-128k.mp4 -i sub_fr.vtt -l fra -i sub_en.vtt -l eng\n")
 
     return
   }
 
   jsonFilename := flag.String("o", "video.json", "JSON output filename (default: video.json)")
   segmentDuration := flag.Uint("d", 10, "segment duration (default: 10)")
+  flag.Var(&inputFilenames, "i", "MP4 or VTT input filename")
+  flag.Var(&languageCodes, "l", "ISO-639-2 language code")
   flag.Parse()
 
-  fmt.Printf("%s", *jsonFilename)
+  fmt.Printf("languageCodes is %+v", languageCodes)
 
-  mp4Files := parseAllFiles(flag.Args())
+  var mp4FileSlice []inputFile
+  var vttFileSlice []inputFile
+  for i, inputFilename := range inputFilenames {
+    switch path.Ext(inputFilename) {
+      case ".mp4":
+        var in inputFile
+        in.Filename = inputFilename
+        if i < len(languageCodes) && languageCodes[i] != "" {
+          in.Language = languageCodes[i]
+        } else {
+          in.Language = "eng"
+        }
+        mp4FileSlice = append(mp4FileSlice, in)
+      case ".vtt":
+        var in inputFile
+        in.Filename = inputFilename
+        if i < len(languageCodes) && languageCodes[i] != "" {
+          in.Language = languageCodes[i]
+        } else {
+          in.Language = "eng"
+        }
+        vttFileSlice = append(vttFileSlice, in)
+      default:
+        fmt.Printf("Sorry, but the file %s is unkwown and can't be packaged. Please use .mp4 or .vtt extensions for your files\n", inputFilename)
+    }
+  }
+
+  fmt.Printf("mp4FileSlice: %+v", mp4FileSlice)
+  mp4Files := parseMp4Files(mp4FileSlice)
 
   f, err := os.Create(*jsonFilename)
   if err != nil {
@@ -76,8 +154,10 @@ func main() {
     elst := mp4File.Boxes["moov.trak.edts.elst"][0].(mp4.ElstBox)
     var t mp4.TrackEntry
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
-    t.Name = "video_eng"
+    t.Name = "video_" + mp4File.Language
     t.File = mp4File.Filename
+    t.Lang = mp4File.Language
+    t.Config = new(mp4.DashConfig)
     t.Config.StszBoxOffset = stsz.Offset
     t.Config.StszBoxSize = stsz.Size
     t.Config.MdatBoxOffset = mdat.Offset
@@ -129,8 +209,10 @@ func main() {
     elst := mp4File.Boxes["moov.trak.edts.elst"][0].(mp4.ElstBox)
     var t mp4.TrackEntry
     t.Bandwidth = uint64(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
-    t.Name = "audio_eng"
+    t.Name = "audio_" + mp4File.Language
     t.File = mp4File.Filename
+    t.Lang = mp4File.Language
+    t.Config = new(mp4.DashConfig)
     t.Config.StszBoxOffset = stsz.Offset
     t.Config.StszBoxSize = stsz.Size
     t.Config.MdatBoxOffset = mdat.Offset
@@ -153,6 +235,17 @@ func main() {
     t.Config.Audio.SampleRate = mp4a.SampleRate
     jConf.Tracks["audio"] = append(jConf.Tracks["audio"], t)
   }
+
+  for _, vttFile := range vttFileSlice {
+    var t mp4.TrackEntry
+    t.Bandwidth = 256
+    t.Name = "caption_" + vttFile.Language
+    t.File = vttFile.Filename
+    t.Lang = vttFile.Language
+    jConf.Tracks["subtitle"] = append(jConf.Tracks["subtitle"], t)
+  }
+
+  fmt.Printf("%+v\n", jConf)
 
   jsonStr, err := json.Marshal(jConf)
   if err != nil {

@@ -41,6 +41,19 @@ func readFile(filename string) (data []byte) {
   return
 }
 
+func createExternalSubtitlesAdaptationSet(tracks []mp4.TrackEntry) (s string, err error) {
+  s = ""
+  for _, t := range tracks {
+    s += fmt.Sprintf(`    <AdaptationSet mimeType="text/vtt" lang="%s">`, t.Lang) + "\n"
+    s += fmt.Sprintf(`      <Representation id="%s" bandwidth="%d">`, t.Name, t.Bandwidth) + "\n"
+    s += fmt.Sprintf(`        <BaseURL>../../%s</BaseURL>`, t.File) + "\n"
+    s += `      </Representation>` + "\n"
+    s += `    </AdaptationSet>` + "\n"
+  }
+
+  return
+}
+
 func createAudioAdaptationSet(tracks []mp4.TrackEntry, videoId string, sDuration uint32) (s string, err error) {
   var minBandwidth uint64
   var maxBandwidth uint64
@@ -191,6 +204,11 @@ func createDashManifest(jConf mp4.JsonConfig, videoId string) (dashManifest stri
     return
   }
   dashManifest += a
+  a, err = createExternalSubtitlesAdaptationSet(jConf.Tracks["subtitle"])
+  if err != nil {
+    return
+  }
+  dashManifest += a
 
   dashManifest += `  </Period>` + "\n"
   dashManifest += `</MPD>` + "\n"
@@ -245,7 +263,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
 
         for _, t := range jConfig.Tracks[trackType] {
           if t.Name == trackName && t.Bandwidth == trackBandwidth {
-            dashInit := mp4.CreateDashInitWithConf(t.Config)
+            dashInit := mp4.CreateDashInitWithConf(*t.Config)
             b := mp4.MapToBytes(dashInit)
             w.Header().Set("Content-Length", strconv.Itoa(len(b)))
             _, err := w.Write(b)
@@ -294,7 +312,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
           if t.Name == trackName && t.Bandwidth == trackBandwidth {
             //sourceMp4 := mp4.ParseFile(t.File)
             //fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
-            fragment := mp4.CreateDashFragmentWithConf(t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
+            fragment := mp4.CreateDashFragmentWithConf(*t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
             fb := mp4.MapToBytes(fragment)
             sizeToWrite := len(fb)
             w.Header().Set("Content-Length", strconv.Itoa(sizeToWrite))

@@ -18,9 +18,10 @@ type JsonConfig struct {
 
 type TrackEntry struct {
   Name string
-  Bandwidth  uint64
+  Bandwidth uint64
   File string
-  Config DashConfig
+  Lang string
+  Config *DashConfig `json:",omitempty"`
 }
 
 type DashAudioEntry struct {
@@ -76,6 +77,7 @@ type DashConfig struct {
 
 type Mp4 struct {
   Filename string
+  Language string
   IsVideo bool
   IsAudio bool
   Boxes map[string][]interface{}
@@ -2167,7 +2169,7 @@ func Debug(mode bool) {
 }
 
 // Parse the mp4 file header and return all decoded box data in a map[string][]interface{}
-func ParseFile(filename string) (mp4 Mp4) {
+func ParseFile(filename string, language string) (mp4 Mp4) {
   mp4.Boxes = make(map[string][]interface{})
   f, err := os.Open(filename)
   if err != nil {
@@ -2183,6 +2185,7 @@ func ParseFile(filename string) (mp4 Mp4) {
   }
 
   mp4.Filename = filename
+  mp4.Language = language
   if mp4.Boxes["moov.trak.mdia.minf.stbl.stsd.mp4a"] != nil {
     mp4.IsAudio = true
   } else {
