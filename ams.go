@@ -412,6 +412,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
 
 func main() {
   documentRoot := flag.String("d", "", "Document Root (default: none)")
+  portNumber := flag.String("p", "80", "Port number used by AMS for listening connections")
   flag.Parse()
 
   if *documentRoot == "" {
@@ -427,10 +428,10 @@ func main() {
     return
   }
 
-  log.Printf(" [*] Running Afrostream Media Server, To exit press CTRL+C")
-
+  listenPort := ":" + *portNumber
+  log.Printf(" [*] Running Afrostream Media Server on %s, To exit press CTRL+C", listenPort)
   http.HandleFunc("/", httpRootServer)
-  http.ListenAndServe(":8000", nil)
+  http.ListenAndServe(listenPort, nil)
 
   return
 }
