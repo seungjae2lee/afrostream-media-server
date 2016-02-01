@@ -93,6 +93,10 @@ Now, you can request URL http://<ip_of_your_server>/video.json/.mpd with a dash 
 <th>Smooth Streaming on-the-fly</th>
 <th>No</th>
 </tr>
+<tr>
+<th>DRM</th>
+<th>No</th>
+</tr>
 </table>
 
 ## Bugs
