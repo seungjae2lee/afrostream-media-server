@@ -85,6 +85,7 @@ func (s *languageSlice) Set(value string) error {
 func parseMp4Files(files []inputFile) (mp4Files map[string][]mp4.Mp4) {
   mp4Files = make(map[string][]mp4.Mp4)
   for _, in := range files {
+    fmt.Printf("-- Parsing file='%s' language='%s'\n", in.Filename, in.Language)
     mp4File := mp4.ParseFile(in.Filename, in.Language)
     if mp4File.IsVideo == true {
       mp4Files["video"] = append(mp4Files["video"], mp4File)
@@ -95,10 +96,6 @@ func parseMp4Files(files []inputFile) (mp4Files map[string][]mp4.Mp4) {
   }
 
   return
-}
-
-func parseFlags(f *flag.Flag) {
-  fmt.Printf("flag parsed: %+v\n", *f)
 }
 
 func main() {
@@ -122,8 +119,6 @@ func main() {
   flag.Var(&inputFilenames, "i", "MP4 or VTT input filename")
   flag.Var(&languageCodes, "l", "ISO-639-2 language code")
   flag.Parse()
-
-  fmt.Printf("languageCodes is %+v", languageCodes)
 
   var mp4FileSlice []inputFile
   var vttFileSlice []inputFile
@@ -152,15 +147,9 @@ func main() {
     }
   }
 
-  fmt.Printf("mp4FileSlice: %+v", mp4FileSlice)
-  mp4Files := parseMp4Files(mp4FileSlice)
+  fmt.Printf("AMSPackager -- spebsd@gmail.com / Afrostream\n\n")
 
-  f, err := os.Create(*jsonFilename)
-  if err != nil {
-    fmt.Printf("Cannot open filename '%s': %v", jsonFilename, err)
-    return
-  }
-  defer f.Close()
+  mp4Files := parseMp4Files(mp4FileSlice)
 
   var jConf mp4.JsonConfig
   //jConf.Tracks = make([][]mp4.TrackEntry, 2)
@@ -276,14 +265,22 @@ func main() {
     jConf.Tracks["subtitle"] = append(jConf.Tracks["subtitle"], t)
   }
 
-  fmt.Printf("%+v\n", jConf)
-
   jsonStr, err := json.Marshal(jConf)
   if err != nil {
     panic(err)
   }
 
+  fmt.Printf("\n-- Creating package file '%s'\n", *jsonFilename)
+  f, err := os.Create(*jsonFilename)
+  if err != nil {
+    fmt.Printf("Cannot open filename '%s': %v", jsonFilename, err)
+    return
+  }
+  defer f.Close()
+
   f.WriteString(string(jsonStr))
+
+  fmt.Printf("\nAll files has been packaged successfully\n")
 
   return
 }
