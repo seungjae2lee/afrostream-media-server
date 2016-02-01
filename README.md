@@ -6,7 +6,7 @@ Afrostream Media Server is a streaming software implemented in [Go](http://golan
 Afrostream Media Server (AMS) is an OpenSource software for streaming MP4 audio/video files to various formats (like **DASH**, **HLS** and **Smooth Streaming**). Currently, the 0.1-alpha version only supports DASH, The implementation of HLS and Smooth Streaming is underway. The goal of this project is to provide an **Unified Streaming (c)** like OpenSource software. Feel free to contact and/or join us to participate to this great project. AMS is considered as experimental project.
 
 ### How to build
-AMS is developped in GoLang so you can build the software for any Operation System you want.
+AMS is developped in GoLang so you can build the software for any Operating System you want.
 
 First, clone the github project to a local directory:
 
