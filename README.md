@@ -1,9 +1,9 @@
 Afrostream Media Server (AMS)
 ===
-Afrostream Media Server is a streaming software implemented in [Go](http://golang.org).
+Afrostream Media Server is a streaming software implemented in [Go](http://golang.org) under BSD Licence.
 
 ### Synopsis
-Afrostream Media Server (AMS) is an OpenSource software for streaming MP4 audio/video files to various formats (like **DASH**, **HLS** and **Smooth Streaming**). Currently, the 0.1-alpha version only supports DASH, The implementation of HLS and Smooth Streaming is underway. The goal of this project is to provide an **Unified Streaming (c)** like OpenSource software. Feel free to contact and/or join us to participate to this great project. AMS is considered as experimental project.
+With Afrostream Media Server (AMS), you can stream MP4 audio/video files to various formats (like **DASH**, **HLS** and **Smooth Streaming**). Currently, the 0.1-alpha version only supports DASH, The implementation of HLS and Smooth Streaming is underway. The goal of this project is to provide an **Unified Streaming (c)** like OpenSource software. Feel free to contact and/or join us to participate to this great project. AMS is considered as experimental.
 
 ### How to build
 AMS is developped in GoLang so you can build the software for any Operating System you want.
@@ -16,7 +16,7 @@ Enter to the directory freshly created by git:
 
 	cd afrostream-media-server
 
-For the next step, you will need [Go](http://golang.org) installed, please refer to your OS for installing Go.
+For the next step, you will need [Go](http://golang.org) installed, please refer to the [Go website](http://golang.org) for installing.
 
 Build amspackager (the packager) and ams (the media server), replace <fullpath> with the base directory where you ran git clone command:
 
@@ -44,11 +44,11 @@ First, We create 4 video profiles and 1 audio profile with a video.mp4 files con
 
 Output profiles will be:
 
-	Video H264 @ 426x240  400kbits/s  Baseline profile (3.0)
-	Video H264 @ 640x360  800kbits/s  Baseline profile (3.0)
-	Video H264 @ 854x480  1600kbits/s Baseline profile (3.1)
-	Video H264 @ 1280x720 3000kbits/s Main profile (3.1)
-	Audio AAC  @ 48000khz 128kbits/s
+	Video H264 @  426x240   400kbits/s Baseline profile (3.0)
+	Video H264 @  640x360   800kbits/s Baseline profile (3.0)
+	Video H264 @  854x480  1600kbits/s Baseline profile (3.1)
+	Video H264 @ 1280x720  3000kbits/s Main profile (3.1)
+	Audio AAC  @  48000Hz   128kbits/s
 
 Move all mp4 files to a directory that you'll use for the HTTP media server document root, cd to this directory and run amspackager to prepare the content for AMS:
 
