@@ -221,9 +221,15 @@ func createDashManifest(jConf mp4.JsonConfig, videoId string) (dashManifest stri
   dashManifest += `xmlns="urn:mpeg:dash:schema:mpd:2011"` + "\n"
   dashManifest += `xsi:schemaLocation="urn:mpeg:dash:schema:mpd:2011 http://standards.iso.org/ittf/PubliclyAvailableStandards/MPEG-DASH_schema_files/DASH-MPD.xsd"` + "\n"
   dashManifest += `type="static"` + "\n"
-  dashManifest += `mediaPresentationDuration="PT1H37M7.797334S"` + "\n"
-  dashManifest += `maxSegmentDuration="PT9S"` + "\n"
-  dashManifest += `minBufferTime="PT10S"` + "\n"
+  var duration uint64
+  if jConf.Tracks["video"] != nil {
+    duration = uint64(jConf.Tracks["video"][0].Config.Duration) / uint64(jConf.Tracks["video"][0].Config.Timescale)
+  } else {
+    duration = uint64(jConf.Tracks["audio"][0].Config.Duration) / uint64(jConf.Tracks["audio"][0].Config.Timescale)
+  }
+  dashManifest += fmt.Sprintf(`mediaPresentationDuration="PT%dH%dM%d.%dS"`, duration / 3600, (duration / 60) % 60, duration % 60, (duration * 1000) % 1000) + "\n"
+  dashManifest += fmt.Sprintf(`maxSegmentDuration="PT%dS"`, jConf.SegmentDuration) + "\n"
+  dashManifest += fmt.Sprintf(`minBufferTime="PT%dS"`, jConf.SegmentDuration + 1) + "\n"
   dashManifest += `profiles="urn:mpeg:dash:profile:isoff-live:2011">` + "\n"
   dashManifest += `  <Period>` + "\n"
   dashManifest += `    <BaseURL>dash/</BaseURL>` + "\n"
