@@ -355,8 +355,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
 
           for _, t := range jConfig.Tracks[trackType] {
             if t.Name == trackName && t.Bandwidth == trackBandwidth {
-              //sourceMp4 := mp4.ParseFile(t.File)
-              //fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
+              t.File = path.Dir(videoIdPath) + "/" + t.File
               fragment := mp4.CreateDashFragmentWithConf(*t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
               fb := mp4.MapToBytes(fragment)
               sizeToWrite := len(fb)
@@ -375,7 +374,6 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
       }
     } else {
       if path.Ext(pathStr) == ".mpd" {
-        log.Printf("MPD file is requested")
         w.Header().Set("Content-Type", "application/dash+xml")
         data, err := readFile(videoIdPath + ".json")
         if err != nil {
