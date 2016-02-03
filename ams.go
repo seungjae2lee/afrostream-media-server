@@ -1,3 +1,34 @@
+// Copyright (c) 2015
+//      Sebastien Petit & Afrostream - www.afrostream.tv - spebsd@gmail.com.
+//      All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// 1. Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors
+//    may be used to endorse or promote products derived from this software
+//    without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+// OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+// HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+// OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+// SUCH DAMAGE.
+
 package main
 
 import (
@@ -17,14 +48,16 @@ import (
 	"flag"
 )
 
-func readFile(filename string) (data []byte) {
+func readFile(filename string) (data []byte, r error) {
   f, err := os.Open(filename)
   if err != nil {
-    panic(err)
+    r = err
+    return
   }
   fi, err := f.Stat()
   if err != nil {
-    panic(err)
+    r = err
+    return
   }
   size := fi.Size()
   data = make([]byte, size)
@@ -32,7 +65,8 @@ func readFile(filename string) (data []byte) {
   for size > 0 {
     count, err := f.Read(data[offset:])
     if err != nil {
-      panic(err)
+      r = err
+      return
     }
     size -= int64(count)
     offset += count
@@ -229,133 +263,147 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
   w.Header().Set("Access-Control-Allow-Headers", "DNT,X-CustomHeader,Keep-Alive,Range,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type")
   w.Header().Set("Connection", "close")
   log.Printf("[ REQUEST ] %+v", r.URL)
-  pathStr := string(r.URL.Path[:])
-  splitDirs := strings.Split(pathStr, "/")
-  videoId := splitDirs[1][0:len(splitDirs[1]) - len(path.Ext(splitDirs[1]))]
-  if len(splitDirs) > 2 && splitDirs[2] == "dash" {
-    w.Header().Set("Content-Type", "video/mp4")
-    switch path.Ext(pathStr) {
-      case ".dash":
-        split1 := strings.Split(pathStr, "-")
-        split2 := strings.Split(split1[1], "=")
-        split3 := strings.Split(split2[1], ".")
-        split4 := strings.Split(split2[0], "_")
+  pathStr := r.URL.Path[:]
+  //splitDirs := strings.Split(pathStr, "/")
+  var s []string
+  s = strings.Split(pathStr, ".json")
+  if s[0] == pathStr {
+    s = strings.Split(pathStr, ".ism")
+  }
+  if s[0] != pathStr {
+    videoIdPath := s[0]
+    videoId := path.Base(videoIdPath)
+    splitDirs := strings.Split(s[1], "/")
 
-        trackName := split2[0]
-        trackType := split4[0]
-        var trackBandwidth uint64
-        num, err := strconv.ParseUint(split3[0], 10, 64)
-        if err != nil {
-          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-          log.Printf("ERROR1")
-          return
-        }
-        trackBandwidth = num
-        data := readFile(videoId + ".json")
+    if len(splitDirs) > 2 && splitDirs[1] == "dash" {
+      w.Header().Set("Content-Type", "video/mp4")
+      switch path.Ext(pathStr) {
+        case ".dash":
+          split1 := strings.Split(s[1], "-")
+          split2 := strings.Split(split1[1], "=")
+          split3 := strings.Split(split2[1], ".")
+          split4 := strings.Split(split2[0], "_")
 
-        var jConfig mp4.JsonConfig
-        err = json.Unmarshal(data, &jConfig)
-        if err != nil {
-          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-          log.Printf("ERROR2")
-          return
-        }
+          trackName := split2[0]
+          trackType := split4[0]
+          var trackBandwidth uint64
+          num, err := strconv.ParseUint(split3[0], 10, 64)
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+          trackBandwidth = num
+          data, err := readFile(videoIdPath + ".json")
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
 
-        for _, t := range jConfig.Tracks[trackType] {
-          if t.Name == trackName && t.Bandwidth == trackBandwidth {
-            dashInit := mp4.CreateDashInitWithConf(*t.Config)
-            b := mp4.MapToBytes(dashInit)
-            w.Header().Set("Content-Length", strconv.Itoa(len(b)))
-            _, err := w.Write(b)
-            if err != nil {
-              http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-              log.Printf("ERROR3")
+          var jConfig mp4.JsonConfig
+          err = json.Unmarshal(data, &jConfig)
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+
+          for _, t := range jConfig.Tracks[trackType] {
+            if t.Name == trackName && t.Bandwidth == trackBandwidth {
+              dashInit := mp4.CreateDashInitWithConf(*t.Config)
+              b := mp4.MapToBytes(dashInit)
+              w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+              _, err := w.Write(b)
+              if err != nil {
+                http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+                return
+              }
+            }
+          }
+        case ".m4s":
+          split1 := strings.Split(s[1], "-")
+          split2 := strings.Split(split1[1], "=")
+          split3 := strings.Split(split1[2], ".")
+          split4 := strings.Split(split2[0], "_")
+
+          trackName := split2[0]
+          trackType := split4[0]
+          var trackBandwidth uint64
+          num, err := strconv.ParseUint(split2[1], 10, 64)
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+          trackBandwidth = num
+          num, err = strconv.ParseUint(split3[0], 10, 32)
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+          var segmentNumber uint32
+          segmentNumber = uint32(num)
+
+          data, err := readFile(videoIdPath + ".json")
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+          var jConfig mp4.JsonConfig
+          err = json.Unmarshal(data, &jConfig)
+          if err != nil {
+            http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+            return
+          }
+
+          for _, t := range jConfig.Tracks[trackType] {
+            if t.Name == trackName && t.Bandwidth == trackBandwidth {
+              //sourceMp4 := mp4.ParseFile(t.File)
+              //fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
+              fragment := mp4.CreateDashFragmentWithConf(*t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
+              fb := mp4.MapToBytes(fragment)
+              sizeToWrite := len(fb)
+              w.Header().Set("Content-Length", strconv.Itoa(sizeToWrite))
+              for sizeToWrite > 0 {
+                num, err := w.Write(fb)
+                if err != nil {
+                  http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
+                  return
+                }
+                sizeToWrite -= num
+              }
               return
             }
           }
-        }
-      case ".m4s":
-        split1 := strings.Split(pathStr, "-")
-        split2 := strings.Split(split1[1], "=")
-        split3 := strings.Split(split1[2], ".")
-        split4 := strings.Split(split2[0], "_")
-
-        trackName := split2[0]
-        trackType := split4[0]
-        var trackBandwidth uint64
-        num, err := strconv.ParseUint(split2[1], 10, 64)
+      }
+    } else {
+      if path.Ext(pathStr) == ".mpd" {
+        log.Printf("MPD file is requested")
+        w.Header().Set("Content-Type", "application/dash+xml")
+        data, err := readFile(videoIdPath + ".json")
         if err != nil {
           http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-          log.Printf("ERROR4")
           return
         }
-        trackBandwidth = num
-        num, err = strconv.ParseUint(split3[0], 10, 32)
-        if err != nil {
-          http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-          log.Printf("ERROR5")
-          return
-        }
-        var segmentNumber uint32
-        segmentNumber = uint32(num)
-
-        data := readFile(videoId + ".json")
         var jConfig mp4.JsonConfig
         err = json.Unmarshal(data, &jConfig)
         if err != nil {
           http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-          log.Printf("ERROR6")
           return
         }
-
-        for _, t := range jConfig.Tracks[trackType] {
-          if t.Name == trackName && t.Bandwidth == trackBandwidth {
-            //sourceMp4 := mp4.ParseFile(t.File)
-            //fragment := mp4.CreateDashFragment(sourceMp4.Boxes, segmentNumber, jConfig.SegmentDuration)
-            fragment := mp4.CreateDashFragmentWithConf(*t.Config, t.File, segmentNumber, jConfig.SegmentDuration)
-            fb := mp4.MapToBytes(fragment)
-            sizeToWrite := len(fb)
-            w.Header().Set("Content-Length", strconv.Itoa(sizeToWrite))
-            for sizeToWrite > 0 {
-              num, err := w.Write(fb)
-              if err != nil {
-                http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-                log.Printf("ERROR7: %v", err)
-                return
-              }
-              sizeToWrite -= num
-            }
-            return
-          }
-        }
-      }
-  } else {
-    pathStr := r.URL.Path[:]
-    if path.Ext(pathStr) == ".mpd" || path.Ext(pathStr) == ".ism" {
-      w.Header().Set("Content-Type", "application/dash+xml")
-      split := strings.Split(pathStr, ".")
-      videoId := path.Base(split[0])
-      data := readFile(split[0] + ".json")
-      var jConfig mp4.JsonConfig
-      err := json.Unmarshal(data, &jConfig)
-      if err != nil {
-        http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-        log.Printf("ERROR9")
-        return
-      }
-      mpdContent := createDashManifest(jConfig, videoId)
-      w.Write([]byte(mpdContent))
-    } else {
-      w.Header().Set("Content-Type", "application/octet-stream")
-      html, err := httpServerLoadPage(pathStr)
-      if err != nil {
-        http.Error(w, `{ "status": "ERROR", "reason": "` + err.Error() + `" }`, http.StatusInternalServerError)
-        log.Printf("ERROR8")
-        return
+        mpdContent := createDashManifest(jConfig, videoId)
+        w.Write([]byte(mpdContent))
       } else {
-        w.Header().Set("Content-Length", strconv.Itoa(len(html)))
-        w.Write(html)
+        http.Error(w, `{ "status": "ERROR", "reason": "format is not supported" }`, http.StatusInternalServerError)
+        return
       }
+    }
+  } else {
+    w.Header().Set("Content-Type", "application/octet-stream")
+    html, err := httpServerLoadPage(pathStr)
+    if err != nil {
+      http.Error(w, `{ "status": "ERROR", "reason": "file not found" }`, http.StatusNotFound)
+      return
+    } else {
+      w.Header().Set("Content-Length", strconv.Itoa(len(html)))
+      w.Write(html)
     }
   }
 
@@ -364,6 +412,7 @@ func httpRootServer(w http.ResponseWriter, r *http.Request) {
 
 func main() {
   documentRoot := flag.String("d", "", "Document Root (default: none)")
+  portNumber := flag.String("p", "80", "Port number used by AMS for listening connections")
   flag.Parse()
 
   if *documentRoot == "" {
@@ -379,10 +428,10 @@ func main() {
     return
   }
 
-  log.Printf(" [*] Running Afrostream Media Server, To exit press CTRL+C")
-
+  listenPort := ":" + *portNumber
+  log.Printf(" [*] Running Afrostream Media Server on %s, To exit press CTRL+C", listenPort)
   http.HandleFunc("/", httpRootServer)
-  http.ListenAndServe(":8000", nil)
+  http.ListenAndServe(listenPort, nil)
 
   return
 }

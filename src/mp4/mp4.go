@@ -1,3 +1,34 @@
+// Copyright (c) 2015
+//      Sebastien Petit & Afrostream - www.afrostream.tv - spebsd@gmail.com.
+//      All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// 1. Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors
+//    may be used to endorse or promote products derived from this software
+//    without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+// OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+// HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+// OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+// SUCH DAMAGE.
+
 package mp4
 
 import (
@@ -2404,8 +2435,7 @@ func CreateDashInit(mp4 map[string][]interface{}) (mp4Init map[string][]interfac
 
   // Then modify some of them
   var free FreeBox
-  //free.Data = []byte("GoLang MP4 package - 2015 spebsd@gmail.com")
-  free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
+  free.Data = []byte("AMS by spebsd@gmail.com")
   free.Size = uint32(len(free.Data))
   replaceBox(mp4Init, "free", free)
 
@@ -2502,7 +2532,7 @@ func CreateDashInit(mp4 map[string][]interface{}) (mp4Init map[string][]interfac
     btrt.AvgBitrate = uint32(float64(mdat.Size) / (float64(mdhd.Duration) / float64(mdhd.Timescale)) * 8)
     avc1.Size = 78 + avcC.Size + 8 + btrt.Size + 8
     stsd.Size = 8 + avc1.Size + 8
-    hdlr.Name = []byte("USP Video Handler\x00")
+    hdlr.Name = []byte("AMS Video Handler\x00")
     hdlr.Size = 24 + uint32(len(hdlr.Name))
     replaceBox(mp4Init, "moov.trak.mdia.minf.stbl.stsd.avc1", avc1)
     replaceBox(mp4Init, "moov.trak.mdia.minf.stbl.stsd.avc1.avcC", avcC)
@@ -2601,7 +2631,6 @@ func CreateDashFragment(mp4 map[string][]interface{}, fragmentNumber uint32, fra
   // FREE
   var free FreeBox
   free.Data = []byte("AMS by spebsd@gmail.com")
-  //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
   free.Size = uint32(len(free.Data))
   replaceBox(fmp4, "free", free)
 
@@ -2819,9 +2848,9 @@ func CreateDashInitWithConf(dConf DashConfig) (mp4Init map[string][]interface{})
   hdlr.HandlerType = dConf.HandlerType
   hdlr.Reserved2 = [3]uint32{ 0, 0, 0 }
   if dConf.Type == "video" {
-    hdlr.Name = []byte("USP Video Handler\x00")
+    hdlr.Name = []byte("AMS Video Handler\x00")
   } else {
-    hdlr.Name = []byte("USP Audio Handler\x00")
+    hdlr.Name = []byte("AMS Audio Handler\x00")
   }
   hdlr.Size = 24 + uint32(len(hdlr.Name))
   replaceBox(mp4Init, "moov.trak.mdia.hdlr", hdlr)
@@ -3028,9 +3057,7 @@ func CreateDashFragmentWithConf(dConf DashConfig, filename string, fragmentNumbe
 
   // FREE
   var free FreeBox
-  //free.Data = []byte("AMS by spebsd@gmail.com")
-  free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 17 ,17 ,17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17 }
-  //free.Data = []byte{ 85, 83, 80, 32, 98, 121, 32, 67, 111, 100, 101, 83 ,104, 111 ,112, 13 ,13 ,13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13 }
+  free.Data = []byte("AMS by spebsd@gmail.com")
   free.Size = uint32(len(free.Data))
   replaceBox(fmp4, "free", free)
 
