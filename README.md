@@ -81,7 +81,11 @@ Your video is prepared for AMS, so let's run Afrostream Media Server as root and
 
 	# /usr/local/bin/ams -d <document_root_path> -p 80
 
-Now, you can request URL http://<ip_of_your_server>/video.json/.mpd with a dash player like [DASHJS](http://dashif.org/reference/players/javascript/v1.5.1/samples/dash-if-reference-player/index.html). That's all.
+Now, you can request URL
+
+	http://<ip_of_your_server>/video.json/.mpd
+
+with a dash player like [DASHJS](http://dashif.org/reference/players/javascript/v1.5.1/samples/dash-if-reference-player/index.html). That's all.
 
 ## TODO
 <table>
