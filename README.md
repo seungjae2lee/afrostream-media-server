@@ -113,6 +113,11 @@ with a dash player like [DASHJS](http://dashif.org/reference/players/javascript/
 <th>Support mp4 files > 4GB</th>
 <th>No</th>
 </tr>
+<tr>
+<th>HEVC/H.265</th>
+<th>No</th>
+</tr>
+<tr>
 <th>DRM</th>
 <th>No</th>
 </tr>
