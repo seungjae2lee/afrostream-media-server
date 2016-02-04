@@ -39,5 +39,5 @@ import (
 
 func main() {
   mp4.Debug(true)
-  mp4.ParseFile(os.Args[1])
+  mp4.ParseFile(os.Args[1], "eng")
 }

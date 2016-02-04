@@ -102,6 +102,10 @@ Now, you can request URL http://<ip_of_your_server>/video.json/.mpd with a dash 
 <th>No</th>
 </tr>
 <tr>
+<tr>
+<th>Support mp4 files > 4GB</th>
+<th>No</th>
+</tr>
 <th>DRM</th>
 <th>No</th>
 </tr>
