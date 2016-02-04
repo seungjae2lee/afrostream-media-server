@@ -3,7 +3,15 @@ Afrostream Media Server (AMS)
 Afrostream Media Server is a streaming software implemented in [Go](http://golang.org) under BSD Licence.
 
 ### Synopsis
-With Afrostream Media Server (AMS), you can stream MP4 audio/video files to various formats (like **DASH**, **HLS** and **Smooth Streaming**). Currently, the 0.1-alpha version only supports DASH, The implementation of HLS and Smooth Streaming is underway. The goal of this project is to provide an **Unified Streaming (c)** like OpenSource software. Feel free to contact and/or join us to participate to this great project. AMS is considered as experimental.
+With Afrostream Media Server (AMS), you can stream MP4 audio/video files to various formats (like **DASH**, **HLS** and **Smooth Streaming**). Currently, the 0.1-alpha version only supports DASH, The implementation of HLS and Smooth Streaming is underway. The goal of this project is to provide an [Unified Streaming](http://www.unified-streaming.com/) like OpenSource software. Feel free to contact and/or join us to participate to this great project. AMS is considered as experimental.
+
+### Demo
+For the demo, we use the [DASH IF Reference Client 1.5.1](http://dashif.org/reference/players/javascript/v1.5.1/samples/dash-if-reference-player/index.html).
+Click on the DASH IF Reference Client 1.5.1 link and enter the following URL:
+
+	http://origin.afrostream.tv:8000/vod/demo_ams/Big_Buck_Bunny_1080p_surround_FrostWire.com.json/.mpd
+
+AMS is running on port 8000 and distribute Big Bug Bunny in DASH format. All profiles has been generated following the How to run section.
 
 ### How to build
 AMS is developped in GoLang so you can build the software for any Operating System you want.
