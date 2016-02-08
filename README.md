@@ -19,6 +19,7 @@ All feedbacks are welcome, you can contact me in different ways (to contribute o
 	IRC: irc.freenode.net #ams
 	Skype: spebsd
 	Email: spebsd@gmail.com or sebastienpetit@afrostream.tv
+	Slack: opensource-ams.slack.com
 
 ### How to build
 AMS is developped in GoLang so you can build the software for any Operating System you want.
