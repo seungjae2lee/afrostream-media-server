@@ -13,6 +13,13 @@ Click on the DASH IF Reference Client 1.5.1 link and enter the following URL:
 
 AMS is running on port 8000 and distribute Big Bug Bunny in DASH format. All profiles has been generated following the How to run section.
 
+### Contact
+All feedbacks are welcome, you can contact me in different ways (to contribute or talk about the project):
+
+	IRC: irc.freenode.net #ams
+	Skype: spebsd
+	Email: spebsd@gmail.com or sebastienpetit@afrostream.tv
+
 ### How to build
 AMS is developped in GoLang so you can build the software for any Operating System you want.
 
