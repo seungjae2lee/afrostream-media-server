@@ -467,6 +467,20 @@ type TfdtBox struct {
   BaseMediaDecodeTime uint64
 }
 
+type FrmaBox struct {
+  Size uint32
+  DataFormat [4]byte
+}
+
+type SchmBox struct {
+  Size uint32
+  Version byte
+  Flags [3]byte
+  SchemeType [4]byte
+  SchemeVersion uint32
+  SchemeUri string
+}
+
 type MdatBox struct {
   Size uint32
   Filename string
@@ -2078,6 +2092,66 @@ func (tfdt TfdtBox) Bytes() (data []byte) {
   return
 }
 
+func readFrmaBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  data := make([]byte, size)
+  _, err := f.Read(data)
+  if err != nil {
+    panic(err)
+  }
+  var frma FrmaBox
+  frma.Size = size
+  copy(frma.DataFormat[:], data[0:4])
+  addBox(mp4, boxPath, frma)
+  dumpBox(boxPath, frma)
+}
+
+func (frma FrmaBox) Bytes() (data []byte) {
+  boxSize := frma.Size + 8
+  data = make([]byte, boxSize)
+
+  binary.BigEndian.PutUint32(data[0:4], boxSize)
+  copy(data[4:8], []byte{ 'f', 'r', 'm', 'a' })
+  copy(data[8:12], frma.DataFormat[:])
+
+  return
+}
+
+func readSchmBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
+  data := make([]byte, size)
+  _, err := f.Read(data)
+  if err != nil {
+    panic(err)
+  }
+  var schm SchmBox
+  schm.Size = size
+  schm.Version = data[0]
+  copy(schm.Flags[:], data[1:4])
+  copy(schm.SchemeType[:], data[4:8])
+  schm.SchemeVersion = binary.BigEndian.Uint32(data[8:12])
+  if schm.Flags[0] == 0x00 && schm.Flags[1] == 0x00 && schm.Flags[2] == 0x01 {
+    schm.SchemeUri = string(data[12:])
+  }
+  addBox(mp4, boxPath, schm)
+  dumpBox(boxPath, schm)
+}
+
+func (schm SchmBox) Bytes() (data []byte) {
+  boxSize := schm.Size + 8
+  data = make([]byte, boxSize)
+
+  binary.BigEndian.PutUint32(data[0:4], boxSize)
+  copy(data[4:8], []byte{ 's', 'c', 'h', 'm' })
+  data[8] = schm.Version
+  copy(data[9:12], schm.Flags[0:3])
+  copy(data[12:16], schm.SchemeType[0:4])
+  binary.BigEndian.PutUint32(data[16:20], schm.SchemeVersion)
+  if schm.Flags[0] == 0x00 && schm.Flags[1] == 0x00 && schm.Flags[2] == 0x01 {
+    copy(data[20:], []byte(schm.SchemeUri)[:])
+  }
+
+  return
+}
+
 func readMdatBox(f *os.File, size uint32, level int, boxPath string, mp4 map[string][]interface{}) {
   var mdat MdatBox
 
@@ -2350,6 +2424,9 @@ func boxToBytes(box interface{}, boxFullPath string) ([]byte) {
     case "trun":
       trun := box.(TrunBox)
       return trun.Bytes()
+    case "frma":
+      frma := box.(FrmaBox)
+      return frma.Bytes()
     case "mdat":
       mdat := box.(MdatBox)
       return mdat.Bytes()
@@ -3327,6 +3404,13 @@ func init() {
     "moov.trak.mdia.minf.stbl.stsd.avc1" : readAvc1Box,
     "moov.trak.mdia.minf.stbl.stsd.avc1.avcC" : readAvcCBox,
     "moov.trak.mdia.minf.stbl.stsd.avc1.btrt" : readBtrtBox,
+    "moov.trak.mdia.minf.stbl.stsd.encv": readAvc1Box,
+    "moov.trak.mdia.minf.stbl.stsd.encv.avcC" : readAvcCBox,
+    "moov.trak.mdia.minf.stbl.stsd.encv.btrt": readBtrtBox,
+    "moov.trak.mdia.minf.stbl.stsd.encv.sinf": readBoxes,
+    "moov.trak.mdia.minf.stbl.stsd.encv.sinf.frma": readFrmaBox,
+    "moov.trak.mdia.minf.stbl.stsd.encv.sinf.schm": readSchmBox,
+    "moov.trak.mdia.minf.stbl.stsd.encv.sinf.schi": readBoxes,
     "moov.trak.mdia.minf.stbl.stsc" : readStscBox,
     "moov.trak.mdia.minf.stbl.stsz" : readStszBox,
     "moov.trak.mdia.minf.stbl.sdtp" : readSdtpBox,
@@ -3350,6 +3434,7 @@ func init() {
     "meta.dinf": readBoxes,
     "meta.ipro": readBoxes,
     "meta.ipro.sinf": readBoxes,
+    "meta.ipro.sinf.frma": readFrmaBox,
     "meta.flin": readBoxes,
     "meta.flin.paen": readBoxes,
     "meco": readBoxes,
