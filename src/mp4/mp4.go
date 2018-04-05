@@ -74,7 +74,7 @@ type DashVideoEntry struct {
   BitDepth uint16              // AVC1 MP4 Box info (eg: 24)
   ColorTableIndex int16        // AVC1 MP4 Box info (eg: -1)
   CodecInfo [3]byte            // AVCC MP4 Box AVC Profile/Comptaiblity/Level Information (eg: []byte{ 0x42, 0xC0, 0x1E }
-  NalUnitSize byte             // AVCC MP4 Box info NALUnitLength field. upper 6-bits are reserved as 111111b aka | 0xf6 (eg: 0xFF)
+  NalUnitSize byte             // AVCC MP4 Box info NALUnitLength field. upper 6-bits are reserved as 111111b aka | 0xfc (eg: 0xFF)
   SPSEntryCount uint8          // AVCC MP4 Box info (eg: 1)
   SPSSize uint16               // AVCC MP4 Box info (eg: 23)
   SPSData []byte               // AVCC MP4 Box info (eg: [103 66 192 30 219 2 128 191 229 192 68 0 0 15 164 0 7 83 0 60 88 187 128])
@@ -358,7 +358,7 @@ type AvcCBox struct {
   AVCProfileIndication uint8	/* profile idc in SPS */
   ProfileCompatibility uint8
   AVCLevelIndication uint8	/* level idc in SPS */
-  NalUnitSize uint8		/* in bytes of the NALUnitLength field. upper 6-bits are reserved as 111111b aka | 0xf6 */
+  NalUnitSize uint8		/* in bytes of the NALUnitLength field. upper 6-bits are reserved as 111111b aka | 0xfc */
   SPSEntryCount uint8           /* Number of Sequence Parameter Set Entries */
   SPSSize uint16		/* Sequence Parameter Set Size upper 3-bits are reserved as 111b aka | 0xe0 */
   SPSData []byte		/* Sequence Parameter Set Datas */
