@@ -131,5 +131,9 @@ with a dash player like [DASHJS](http://dashif.org/reference/players/javascript/
 </tr>
 </table>
 
+## Implemented
+ - HEVC/H.265
+ - MJPEG
+ 
 ## Bugs
 There is probably some bugs in this implementation, all mp4 parsing has been developped in pure GoLang, no external libraries has been used. If you see any bugs please report to tech@afrostream.tv or spebsd@gmail.com.
